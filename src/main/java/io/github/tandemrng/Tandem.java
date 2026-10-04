@@ -49,7 +49,6 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     };
     private static final long MASK32 = 0xffffffffL;
     private static final double TWO_PI = 6.283185307179586;
-    private static final float TWO_PI_F = 6.2831855f;
 
     private final int k0, k1, k2, k3;
     private final int chunk;
@@ -667,8 +666,9 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
 
     /**
      * As {@link #nextGaussian()} computed in float from two float draws, with its own kept sine
-     * half. The arithmetic is float with {@link StrictMath} on the float values rounded back to
-     * float, so results agree with other ports only to a few ulps.
+     * half. The radius is computed in float, the angle {@code 2 pi b} in double, and the cosine and
+     * sine are rounded to float before the float product, as in the other hosts. Results agree
+     * with other ports to a few ulps.
      */
     public float nextGaussianFloat() {
         if (hasSpareF) {
@@ -678,9 +678,10 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         float u = nextFloat();
         float v = nextFloat();
         float r = (float) StrictMath.sqrt(-2.0f * (float) StrictMath.log(1.0f - u));
-        spareF = r * (float) StrictMath.sin(TWO_PI_F * v);
+        double ang = TWO_PI * v;
+        spareF = r * (float) StrictMath.sin(ang);
         hasSpareF = true;
-        return r * (float) StrictMath.cos(TWO_PI_F * v);
+        return r * (float) StrictMath.cos(ang);
     }
 
     /** Draws a float Box-Muller pair {@code {cos, sin}} from two float draws, ignoring the kept half. */
@@ -692,7 +693,8 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
 
     private static float[] gaussianPairF(float u, float v) {
         float r = (float) StrictMath.sqrt(-2.0f * (float) StrictMath.log(1.0f - u));
-        return new float[] {r * (float) StrictMath.cos(TWO_PI_F * v), r * (float) StrictMath.sin(TWO_PI_F * v)};
+        double ang = TWO_PI * v;
+        return new float[] {r * (float) StrictMath.cos(ang), r * (float) StrictMath.sin(ang)};
     }
 
     /** As {@link #fillGaussian(double[])} in float, from uniforms of {@link #fill(float[])}. */

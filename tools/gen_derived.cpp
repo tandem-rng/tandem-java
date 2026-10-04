@@ -7,6 +7,7 @@
 // Each case starts from Rng(42) after one bit draw, which leaves the position unaligned.
 #include <cinttypes>
 #include <cstdio>
+#include <initializer_list>
 
 #include "tandem/core.hpp"
 
@@ -92,23 +93,58 @@ int main() {
         std::printf("%" PRIu64 "L%s", g.position(), n == RANGES64[4] ? "" : ", ");
     }
 
-    // log and cos differ in the last place between libms. Fourteen digits keep the file identical
-    // on every platform, and the tests compare within a relative 1e-12.
+    // log, cos and sin differ in the last place between libms. Fourteen digits keep the file
+    // identical on every platform, and the tests compare within a relative 1e-12. Element 2i of
+    // each array is the cos half of pair i and 2i + 1 the sin half.
     tandem::Rng g(42);
     g.bit();
     std::printf("};\n\n    static final double[] NORMAL = {\n");
-    for (int i = 0; i < COUNT; i++)
-        std::printf("        %.14g,\n", g.normal());
+    for (int i = 0; i < COUNT; i++) {
+        auto z = g.normal2();
+        std::printf("        %.14g,\n        %.14g,\n", z.z0, z.z1);
+    }
     std::printf("    };\n    static final long NORMAL_END = %" PRIu64 "L;\n", g.position());
 
-    // The float normal agrees across ports to a few ulps. Six digits hide the libm differences
-    // and the tests compare within 4e-6.
+    // Float normals agree across ports to a few ulps. Seven digits hide the libm differences.
     tandem::Rng f(42);
     f.bit();
     std::printf("\n    static final float[] NORMALF = {\n");
-    for (int i = 0; i < COUNT; i++)
-        std::printf("        %.6gf,\n", f.normalf());
+    for (int i = 0; i < COUNT; i++) {
+        auto z = f.normalf2();
+        std::printf("        %.7gf,\n        %.7gf,\n", (double)z.z0, (double)z.z1);
+    }
     std::printf("    };\n    static final long NORMALF_END = %" PRIu64 "L;\n", f.position());
+
+    // Normal fills of 33 elements from the key of seed 42, K = 32, as in tandem-cuda's
+    // cross_fill_normal.h: pair j is one step of uniforms 2j and 2j + 1 of the plain fill.
+    tandem::Rng nroot(42, 0, 32);
+    std::printf("\n    static final long[] FILLN_POS64 = {0L, 64L, 1000L};\n");
+    std::printf("    static final double[][] FILLN64 = {\n");
+    for (uint64_t pos : {0ull, 64ull, 1000ull}) {
+        tandem::Rng r = nroot;
+        r.set_position(pos);
+        std::printf("        {");
+        for (int j = 0; j < 17; j++) {
+            auto z = tandem::box_muller2(r.at_drand(2 * j), r.at_drand(2 * j + 1));
+            std::printf("%s%.14g", j ? ", " : "", z.z0);
+            if (2 * j + 1 < 33) std::printf(", %.14g", z.z1);
+        }
+        std::printf("},\n");
+    }
+    std::printf("    };\n    static final long[] FILLN_POS32 = {0L, 32L, 64L, 96L, 1000L};\n");
+    std::printf("    static final float[][] FILLN32 = {\n");
+    for (uint64_t pos : {0ull, 32ull, 64ull, 96ull, 1000ull}) {
+        tandem::Rng r = nroot;
+        r.set_position(pos);
+        std::printf("        {");
+        for (int j = 0; j < 17; j++) {
+            auto z = tandem::box_muller2_f32(r.at_frand(2 * j), r.at_frand(2 * j + 1));
+            std::printf("%s%.7gf", j ? ", " : "", (double)z.z0);
+            if (2 * j + 1 < 33) std::printf(", %.7gf", (double)z.z1);
+        }
+        std::printf("},\n");
+    }
+    std::printf("    };\n");
 
     // Bounded fills: element e takes draw e of the plain fill, and a rejected draw retries on
     // split(e) of sub(PURPOSE_BELOW) from position 0. Key of seed 42, K = 32, position 0.

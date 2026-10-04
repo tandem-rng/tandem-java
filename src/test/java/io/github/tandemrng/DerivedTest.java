@@ -73,10 +73,9 @@ class DerivedTest {
     @Test
     void normalsThroughTheInterface() {
         RandomGenerator g = start();
-        // Each scalar pair is a cosine half, which the fixtures hold, then a kept sine half.
+        // Elements alternate the cosine half and the kept sine half.
         for (int i = 0; i < Derived.NORMAL.length; i++) {
             double z = g.nextGaussian();
-            g.nextGaussian();
             assertTrue(Math.abs(z - Derived.NORMAL[i]) <= 1e-12 * Math.abs(Derived.NORMAL[i]), "normal " + i);
         }
         assertEquals(Derived.NORMAL_END, ((Tandem) g).position());
@@ -115,10 +114,27 @@ class DerivedTest {
         Tandem g = start();
         for (int i = 0; i < Derived.NORMALF.length; i++) {
             float z = g.nextGaussianFloat();
-            g.nextGaussianFloat();
-            assertTrue(Math.abs(z - Derived.NORMALF[i]) <= 4e-6 * (1 + Math.abs(Derived.NORMALF[i])), "normal " + i);
+            assertTrue(Math.abs(z - Derived.NORMALF[i]) <= 16 * Math.ulp(Derived.NORMALF[i]) + 1e-6, "normal " + i);
         }
         assertEquals(Derived.NORMALF_END, g.position());
+    }
+
+    @Test
+    void normalFillsFollowTheCore() {
+        for (int c = 0; c < Derived.FILLN_POS64.length; c++) {
+            double[] want = Derived.FILLN64[c], got = new double[want.length];
+            Tandem g = new Tandem(Tandem.seed(42).keyLo(), Tandem.seed(42).keyHi(), Derived.FILLN_POS64[c], 32);
+            g.fillGaussian(got);
+            for (int i = 0; i < want.length; i++)
+                assertTrue(Math.abs(got[i] - want[i]) <= 1e-12 * Math.abs(want[i]), "f64 pos " + c + " element " + i);
+        }
+        for (int c = 0; c < Derived.FILLN_POS32.length; c++) {
+            float[] want = Derived.FILLN32[c], got = new float[want.length];
+            Tandem g = new Tandem(Tandem.seed(42).keyLo(), Tandem.seed(42).keyHi(), Derived.FILLN_POS32[c], 32);
+            g.fillGaussian(got);
+            for (int i = 0; i < want.length; i++)
+                assertTrue(Math.abs(got[i] - want[i]) <= 16 * Math.ulp(want[i]) + 1e-6, "f32 pos " + c + " element " + i);
+        }
     }
 
     /** The float normal evaluates the same formula on two float draws, to a few ulps. */
