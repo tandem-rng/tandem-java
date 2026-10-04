@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: JDK ${{ matrix.java }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        java: ["17", "21"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+      - run: mvn -B verify
+  vectors:
+    name: vector data is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          git clone --depth 1 https://github.com/tandem-rng/spec ../tandem-spec
+          python3 tools/gen_vectors.py ../tandem-spec/vectors.json > src/test/java/io/github/tandemrng/Vectors.java
+          git diff --exit-code src/test/java/io/github/tandemrng/Vectors.java
+  derived:
+    name: derived data is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          git clone --depth 1 https://github.com/tandem-rng/tandem-cuda ../tandem-cuda
+          c++ -std=c++17 -I ../tandem-cuda/include tools/gen_derived.cpp -o gen_derived
+          ./gen_derived > src/test/java/io/github/tandemrng/Derived.java
+          git diff --exit-code src/test/java/io/github/tandemrng/Derived.java
