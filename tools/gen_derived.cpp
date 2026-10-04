@@ -172,6 +172,43 @@ int main() {
             std::printf("%s0x%016" PRIx64 "L", e ? ", " : "", below64(root, r, e));
         std::printf("},\n");
     }
-    std::printf("    };\n}\n");
+
+    // Bounded fills from unaligned starts, as in tandem-c's cross_fill_below.h: the fallback of
+    // draw i is keyed by the global draw index, aligned start over the width plus i.
+    const uint64_t STARTS[] = {1ull, 12345ull};
+    std::printf("    };\n\n    static final long[] FILLS_START = {1L, 12345L};\n    static final int[][][] FILLS_BELOW32 = {\n");
+    for (uint64_t start : STARTS) {
+        std::printf("        {\n");
+        for (uint32_t n : FILL32) {
+            tandem::Rng g(42);
+            g.set_position(start);
+            tandem::Key k = g.key();
+            uint64_t first = (start + 31) / 32;
+            std::printf("            {");
+            for (int i = 0; i < COUNT; i++)
+                std::printf("%s0x%08" PRIx32, i ? ", " : "",
+                            tandem::below_u32(g.urand(), n, k.w, g.chunk_length(), first + (uint64_t)i));
+            std::printf("},\n");
+        }
+        std::printf("        },\n");
+    }
+    std::printf("    };\n    static final long[][][] FILLS_BELOW64 = {\n");
+    for (uint64_t start : STARTS) {
+        std::printf("        {\n");
+        for (uint64_t n : FILL64) {
+            tandem::Rng g(42);
+            g.set_position(start);
+            tandem::Key k = g.key();
+            uint64_t first = (start + 63) / 64;
+            std::printf("            {");
+            for (int i = 0; i < COUNT; i++)
+                std::printf("%s0x%016" PRIx64 "L", i ? ", " : "",
+                            tandem::below_u64(g.urand64(), n, k.w, g.chunk_length(), first + (uint64_t)i));
+            std::printf("},\n");
+        }
+        std::printf("        },\n");
+    }
+    std::printf("    };\n");
+    std::printf("}\n");
     return 0;
 }

@@ -189,4 +189,21 @@ class DerivedTest {
             assertArrayEquals(whole64, parts64, "u64 cut " + cut);
         }
     }
+
+    @Test
+    void boundedFillsFromUnalignedStartsFollowTheCore() {
+        Tandem seed = Tandem.seed(42);
+        for (int s = 0; s < Derived.FILLS_START.length; s++) {
+            for (int c = 0; c < Derived.FILL_RANGE32.length; c++) {
+                int[] a = new int[64];
+                new Tandem(seed.keyLo(), seed.keyHi(), Derived.FILLS_START[s], 32).fillBelowU32(a, 0, 64, Derived.FILL_RANGE32[c]);
+                assertArrayEquals(Derived.FILLS_BELOW32[s][c], a, "u32 start " + s + " range " + c);
+            }
+            for (int c = 0; c < Derived.FILL_RANGE64.length; c++) {
+                long[] a = new long[64];
+                new Tandem(seed.keyLo(), seed.keyHi(), Derived.FILLS_START[s], 32).fillBelowU64(a, 0, 64, Derived.FILL_RANGE64[c]);
+                assertArrayEquals(Derived.FILLS_BELOW64[s][c], a, "u64 start " + s + " range " + c);
+            }
+        }
+    }
 }
