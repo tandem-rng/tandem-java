@@ -1,0 +1,2 @@
+# nvcc output, rebuilt by tools/build_ptx.sh and checked in CI.
+*.ptx -diff -whitespace linguist-generated

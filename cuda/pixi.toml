@@ -1,0 +1,32 @@
+# The GPU module. `pixi run test` builds the core jar into the local Maven repository and runs
+# the tests without a GPU. On a GPU host, `pixi run gpu-test` and `pixi run bench`.
+# `pixi run -e nvcc ptx` rebuilds the PTX with nvcc 12.8 and clang 19.
+[workspace]
+name = "tandem-java-cuda"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+[dependencies]
+openjdk = "25.*"
+maven = "*"
+
+[feature.nvcc]
+platforms = ["linux-64"]
+
+[feature.nvcc.dependencies]
+cuda-version = "12.8.*"
+cuda-nvcc = "12.8.*"
+cuda-cudart-dev = "12.8.*"
+clangxx = "19.*"
+clang = "19.*"
+gxx = "13.*"
+
+[environments]
+nvcc = ["nvcc"]
+
+[tasks]
+core = { cmd = "mvn -B -q -f ../pom.xml install -DskipTests" }
+test = { cmd = "mvn -B verify", depends-on = ["core"] }
+gpu-test = { cmd = "mvn -B verify -Dtandem.groups=gpu", depends-on = ["core"] }
+bench = { cmd = "mvn -B -q test-compile && java -Xmx6g --enable-native-access=ALL-UNNAMED -cp target/classes:target/test-classes:../target/classes io.github.tandemrng.cuda.Bench", depends-on = ["core"] }
+ptx = "sh tools/build_ptx.sh"
