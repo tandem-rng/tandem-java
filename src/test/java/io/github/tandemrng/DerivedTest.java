@@ -58,6 +58,10 @@ class DerivedTest {
             for (int i = 0; i < Derived.BELOW64[c].length; i++)
                 assertEquals(Derived.BELOW64[c][i], g.nextLong(Derived.RANGE64[c]));
         }
+        long edge = (1L << 32) + 1;
+        Tandem g = start(), h = start();
+        for (int i = 0; i < 50; i++) assertEquals(h.belowU64(edge), g.nextLong(edge));
+        assertEquals(h.position(), g.position());
     }
 
     /** Appendix A: a range up to 2^32 draws 32 bits whatever the result type. */
@@ -147,6 +151,17 @@ class DerivedTest {
         Tandem.seed(42).nextLongs(a, 1L << 32);
         Tandem.seed(42).fill(want);
         for (int i = 0; i < 40; i++) assertEquals(want[i] & 0xffffffffL, a[i]);
+
+        // Longer than one block of the widening, from an unaligned start, at a rejecting range.
+        long[] wide = new long[3000];
+        int[] narrow = new int[3000];
+        Tandem p = Tandem.seed(5), q = Tandem.seed(5);
+        p.nextByte();
+        q.nextByte();
+        p.nextLongs(wide, 0x80000001L);
+        q.fillBelowU32(narrow, 0, narrow.length, 0x80000001);
+        for (int i = 0; i < wide.length; i++) assertEquals(narrow[i] & 0xffffffffL, wide[i], "element " + i);
+        assertEquals(q.position(), p.position());
     }
 
     @Test

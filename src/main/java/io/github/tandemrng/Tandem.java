@@ -908,11 +908,17 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
             fillBelowU64(a, 0, a.length, bound);
             return;
         }
-        int[] narrow = new int[a.length];
-        if (bound == 1L << 32) fill(narrow);
-        else fillBelowU32(narrow, 0, narrow.length, (int) bound);
-        for (int i = 0; i < a.length; i++) a[i] = narrow[i] & MASK32;
+        // Blocks bound the scratch array. Cut bounded fills equal the whole fill.
+        int[] narrow = new int[Math.min(a.length, NARROW_BLOCK)];
+        for (int i = 0; i < a.length; ) {
+            int m = Math.min(a.length - i, NARROW_BLOCK);
+            if (bound == 1L << 32) fill(narrow, 0, m);
+            else fillBelowU32(narrow, 0, m, (int) bound);
+            for (int j = 0; j < m; j++) a[i++] = narrow[j] & MASK32;
+        }
     }
+
+    private static final int NARROW_BLOCK = 1024;
 
     /** Draws uniformly from {@code [0, bound)} with {@link #belowU32}. */
     @Override
