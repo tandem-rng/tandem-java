@@ -59,6 +59,10 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     private final int chunk;
     private long pos;
     private transient Cache cache;
+    /** The cached block as the scalar draws read it: its longs, its first bit position and its length in bits. */
+    private transient long[] fb = NO_BLOCK;
+    private transient long fbStart, fbBits;
+    private static final long[] NO_BLOCK = new long[0];
     /** Kept sine halves of the last scalar Box-Muller pairs, see {@link #nextGaussian()}. */
     private transient boolean hasSpare, hasSpareF;
     private transient double spare;
@@ -195,6 +199,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
 
     private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
         in.defaultReadObject();
+        fb = NO_BLOCK;
         if (chunk < 1 || chunk > MAX_CHUNK_LENGTH || (chunk & (chunk - 1)) != 0)
             throw new InvalidObjectException("invalid chunk length " + chunk);
     }
@@ -592,6 +597,9 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         c.next += rows;
         c.start = rb;
         c.count = rows;
+        fb = c.buf;
+        fbStart = rb << 10;
+        fbBits = (long) rows << 10;
         return (int) (r - rb) << 4;
     }
 
@@ -604,6 +612,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         Cache c = cache;
         if (c == null) cache = c = new Cache();
         c.count = 0;
+        fbBits = 0;
         int shift = Integer.numberOfTrailingZeros(chunk);
         long g = rb >>> shift;
         int first = (int) (rb & (chunk - 1L));
@@ -618,8 +627,15 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
 
     /** The word at bit position p, which need not be aligned: the 32-bit word that contains it. */
     private int word(long p) {
-        int base = locate(p);
-        return (int) (cache.buf[base + ((int) (p >>> 6) & 15)] >>> (int) (p & 32));
+        long off = p - fbStart;
+        if (Long.compareUnsigned(off, fbBits) >= 0) off = refill(p);
+        return (int) (fb[(int) (off >>> 6)] >>> (int) (off & 32));
+    }
+
+    /** Out of line, so the draw paths stay small enough to inline. */
+    private long refill(long p) {
+        load(p >>> 10);
+        return p - fbStart;
     }
 
     /** The w bits at bit position p, aligned to w, for w up to 64, without touching the cache. */
@@ -675,18 +691,21 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     /** Draws a signed 32-bit integer. */
     @Override
     public int nextInt() {
-        long p = align(pos, 32);
-        pos = p + 32;
-        return word(p);
+        // align(pos, 32) + 32 as one add and mask, which shortens the dependency through pos.
+        long e = (pos + 63) & -32L;
+        pos = e;
+        return word(e - 32);
     }
 
     /** Draws a signed 64-bit integer. */
     @Override
     public long nextLong() {
-        long p = align(pos, 64);
-        pos = p + 64;
-        int i = locate(p) + ((int) (p >>> 6) & 15);
-        return cache.buf[i];
+        long e = (pos + 127) & -64L;
+        pos = e;
+        long p = e - 64;
+        long off = p - fbStart;
+        if (Long.compareUnsigned(off, fbBits) >= 0) off = refill(p);
+        return fb[(int) (off >>> 6)];
     }
 
     /** Draws a 128-bit integer as {@code {lo, hi}}. */

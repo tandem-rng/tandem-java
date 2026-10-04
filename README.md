@@ -118,12 +118,12 @@ draws or by `Tandem.fill`.
 
 | generator | nextInt ns | nextLong ns | nextDouble ns | int[] loop GiB/s | double[] loop GiB/s | int[] fill GiB/s | double[] fill GiB/s |
 |---|---|---|---|---|---|---|---|
-| Tandem | 1.56 | 2.08 | 2.17 | 2.39 | 3.46 | 5.44 | 6.27 |
+| Tandem | 1.24 | 1.74 | 1.96 | 2.97 | 3.88 | 5.50 | 6.31 |
 | L64X128MixRandom | 1.14 | 1.13 | 1.12 | 3.32 | 6.57 | - | - |
 | SplittableRandom | 0.41 | 0.44 | 0.59 | 9.46 | 15.95 | - | - |
 
 A scalar draw costs in proportion to the bytes it takes, because every row is generated on
-demand and generation dominates: a `long` takes twice the stream of an `int`. Each lane of a
+demand and generation dominates: a `long` takes twice the stream of an `int`. The cached block is read through fields of the generator, with one unsigned range check per draw and the refill out of line. Each lane of a
 row is independent, so the cache holds a block of 32 rows. Four lanes step through the block
 together with their state in registers and store packed `long` pairs. The seeding function runs
 four lanes at a time in the same way. `long[]` and `double[]` fills generate whole blocks directly into the destination. The JIT does not vectorise the row step, so fills stay at roughly 6 GiB/s on the M4 Pro against about 20 GiB/s in `tandem-c`. `nextGaussian` uses `StrictMath`, which gives the same
