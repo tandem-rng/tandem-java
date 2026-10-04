@@ -160,6 +160,13 @@ Normals use no libm: explicit `Math.fma` polynomials with the coefficients and a
 compiler (a test checks the hash of 1e6 pairs at five positions). `fillGaussian` runs at about
 2.3 GiB/s for `double[]` and 1.4 GiB/s for `float[]`.
 
+Exponentials, same machine and method (`tools/Bench.java` prints these as extra columns):
+
+| generator | nextExponential ns | `fillExponential(double[])` GiB/s | `fillExponential(float[])` GiB/s |
+|---|---|---|---|
+| Tandem | 3.00 | 2.89 | 2.02 |
+| L64X128MixRandom | 3.55 | - | - |
+
 
 
 The Vector API (`jdk.incubator.vector`, still incubating in JDK 25) is not used. It has no
