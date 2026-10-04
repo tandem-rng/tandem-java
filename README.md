@@ -65,6 +65,9 @@ try (TandemCuda gpu = TandemCuda.open(); Arena arena = Arena.ofConfined()) {   /
   `fillGaussianDoubles` into device memory. It needs compute capability 8.0 and driver 570.
   Run the JVM with `--enable-native-access=ALL-UNNAMED`.
 
+Normal pairs, bounded fill contracts, draw widths and the GPU kernels are in
+[docs/notes.md](docs/notes.md).
+
 ## Tests
 
 ```sh
