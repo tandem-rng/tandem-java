@@ -1,0 +1,12 @@
+[workspace]
+name = "tandem-java"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+[dependencies]
+openjdk = "21.*"
+maven = "*"
+
+[tasks]
+test = "mvn -B verify"
+bench = "mvn -B -q -DskipTests package && java -Xmx2g -cp target/classes tools/Bench.java"
