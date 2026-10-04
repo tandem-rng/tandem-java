@@ -52,7 +52,7 @@ try (TandemCuda gpu = TandemCuda.open(); Arena arena = Arena.ofConfined()) {   /
 - Bounded integers: `nextInt(bound)`, `nextLong(bound)`, `nextInts`, `nextLongs`,
   `belowU32`, `belowU64`, `fillBelowU32`, `fillBelowU64`. They use Lemire's method.
 - Normals: `nextGaussian`, `nextGaussianFloat`, `nextGaussian2`, `nextGaussianFloat2`,
-  `fillGaussian(double[] | float[])`. Double normals agree with other ports to 1e-12 relative.
+  `fillGaussian(double[] | float[])`. They are bit identical to `tandem-c`.
 - Exponentials: `nextExponential`, `nextExponentialFloat`, `fillExponential`.
   They are bit identical to `tandem-c` and `tandem-cuda`.
 - `java.util.random.RandomGenerator.SplittableGenerator`, so it drives `ints()`, `doubles()`,

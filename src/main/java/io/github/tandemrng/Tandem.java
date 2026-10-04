@@ -1048,8 +1048,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
      * {@code split}, {@code fork} and {@code sub}, and is not serialized, so the first call after
      * deserialization starts a fresh pair. Other draws do not touch it. It uses
      * only correctly rounded double arithmetic (a polynomial log, a folded sine and cosine series
-     * and {@code Math.sqrt}), so the result is the same on every JVM, and agrees with the other
-     * ports to a relative 1e-12.
+     * and {@code Math.sqrt}), so the result is bit identical on every JVM and in tandem-c.
      */
     @Override
     public double nextGaussian() {
@@ -1110,10 +1109,8 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     private static final int GAUSSIAN_BLOCK = 256;
 
     /**
-     * As {@link #nextGaussian()} computed in float from two float draws, with its own kept sine
-     * half. The radius is computed in float, the angle {@code 2 pi b} in double, and the cosine and
-     * sine are rounded to float before the float product, as in the other hosts. Results agree
-     * with other ports to a few ulps.
+     * As {@link #nextGaussian()} computed entirely in float from two float draws, with its own
+     * kept sine half. Bit identical to tandem-c.
      */
     public float nextGaussianFloat() {
         if (hasSpareF) {

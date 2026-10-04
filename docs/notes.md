@@ -69,10 +69,8 @@ A generator is not thread-safe. Give each thread its own child from `split` or `
   uniforms. Scalar `nextGaussian()` and `nextGaussianFloat()` return the cosine half and keep the
   sine half for the next call, so repeated calls give exactly the fill sequence. The kept half is
   dropped by `setPosition`, `split`, `fork` and `sub` and is not serialized: after
-  deserialization the next call starts a fresh pair. The double normals agree with the other
-  ports to a relative 1e-12. The float normals follow the host rule of `tandem-cuda`: float
-  radius, angle 2 pi b in double, cosine and sine rounded to float, product in float. They agree
-  across ports to a few ulps, not bit for bit.
+  deserialization the next call starts a fresh pair. Double normals are computed in double and
+  float normals in float, both bit identical to `tandem-c`.
 - Standard exponentials follow Appendix A of the specification: `-ln(1 - u)` from one uniform
   each, so a fill is random access. `nextExponential()` (the interface method, overridden) and
   `nextExponentialFloat()` draw one double or float. `fillExponential(double[])` and
@@ -192,6 +190,11 @@ through the block together with their state in registers and store packed `long`
 seeding function runs four lanes at a time in the same way. `long[]` and `double[]` fills generate
 whole blocks directly into the destination. The JIT does not vectorise the row step, so fills stay
 at roughly 6 GiB/s on the M4 Pro against about 20 GiB/s in `tandem-c`.
+
+The JIT does not vectorise the polynomial logarithm either: the loop runs at the same speed with
+`-XX:-UseSuperWord`. So `fillExponential`
+costs a uniform fill plus a scalar transform of about the same cost, while `tandem-c` runs the
+transform on NEON or AVX2 lanes. That puts it under half of `tandem-c`.
 
 Normals use no libm: explicit `Math.fma` polynomials with the coefficients and association of
 `tandem.c`, so the double and float normals are bit identical to tandem-c on every JVM and
