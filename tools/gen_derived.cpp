@@ -61,13 +61,13 @@ int main() {
         std::printf("%" PRIu64 "L%s", g.position(), n == RANGES64[4] ? "" : ", ");
     }
 
-    // log and cos differ in the last place between libms. Twelve digits keep the file identical
+    // log and cos differ in the last place between libms. Fourteen digits keep the file identical
     // on every platform, and the tests compare within a relative 1e-12.
     tandem::Rng g(42);
     g.bit();
     std::printf("};\n\n    static final double[] NORMAL = {\n");
     for (int i = 0; i < COUNT; i++)
-        std::printf("        %.12g,\n", g.normal());
+        std::printf("        %.14g,\n", g.normal());
     std::printf("    };\n    static final long NORMAL_END = %" PRIu64 "L;\n}\n", g.position());
     return 0;
 }
