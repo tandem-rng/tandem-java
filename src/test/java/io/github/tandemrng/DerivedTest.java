@@ -49,14 +49,33 @@ class DerivedTest {
         }
     }
 
+    /** Ranges above 2^32 draw 64 bits, as belowU64 does. */
     @Test
-    void nextLongIsBelowForPositiveBounds() {
+    void nextLongIsBelowU64ForWideBounds() {
         for (int c = 0; c < Derived.RANGE64.length; c++) {
-            if (Derived.RANGE64[c] <= 0) continue;
+            if (Derived.RANGE64[c] <= 0 || Derived.RANGE64[c] <= 1L << 32) continue;
             Tandem g = start();
             for (int i = 0; i < Derived.BELOW64[c].length; i++)
                 assertEquals(Derived.BELOW64[c][i], g.nextLong(Derived.RANGE64[c]));
         }
+    }
+
+    /** Appendix A: a range up to 2^32 draws 32 bits whatever the result type. */
+    @Test
+    void nextLongWithNarrowRangeEqualsNextInt() {
+        for (int c = 0; c < Derived.RANGE32.length; c++) {
+            long range = Derived.RANGE32[c] & 0xffffffffL;
+            Tandem g = start();
+            for (int i = 0; i < Derived.BELOW32[c].length; i++)
+                assertEquals(Derived.BELOW32[c][i] & 0xffffffffL, g.nextLong(range), "range " + c + " draw " + i);
+            assertEquals(Derived.BELOW32_END[c], g.position());
+            Tandem h = start();
+            for (int i = 0; i < Derived.BELOW32[c].length; i++)
+                assertEquals(-5 + (Derived.BELOW32[c][i] & 0xffffffffL), h.nextLong(-5, -5 + range));
+        }
+        Tandem g = start(), h = start();
+        for (int i = 0; i < 50; i++) assertEquals(h.nextInt() & 0xffffffffL, g.nextLong(1L << 32));
+        assertEquals(h.position(), g.position());
     }
 
     /** The span of the widest int range, 2^32 - 1, exceeds Integer.MAX_VALUE. */
@@ -104,9 +123,37 @@ class DerivedTest {
         int[] a = new int[64];
         Tandem.seed(42).nextInts(a, 1000);
         assertArrayEquals(Derived.FILL_BELOW32[3], a);
-        long[] b = new long[64];
-        Tandem.seed(42).nextLongs(b, 1000);
-        assertArrayEquals(Derived.FILL_BELOW64[3], b);
+        long[] b = new long[64], wide = new long[64];
+        Tandem g = Tandem.seed(42);
+        g.nextLongs(wide, 1L << 40);
+        assertEquals(64L * 64, g.position());
+        Tandem.seed(42).fillBelowU64(b, 0, 64, 1L << 40);
+        assertArrayEquals(wide, b);
+    }
+
+    /** A bound up to 2^32 fills from 32-bit draws and equals the int fill, widened. */
+    @Test
+    void nextLongsWithNarrowBoundEqualsNextInts() {
+        for (int c = 0; c < Derived.FILL_RANGE32.length; c++) {
+            long bound = Derived.FILL_RANGE32[c] & 0xffffffffL;
+            long[] a = new long[Derived.FILL_BELOW32[c].length];
+            Tandem g = Tandem.seed(42);
+            g.nextLongs(a, bound);
+            for (int i = 0; i < a.length; i++) assertEquals(Derived.FILL_BELOW32[c][i] & 0xffffffffL, a[i], "range " + c + " element " + i);
+            assertEquals(32L * a.length, g.position());
+        }
+        long[] a = new long[40];
+        int[] want = new int[40];
+        Tandem.seed(42).nextLongs(a, 1L << 32);
+        Tandem.seed(42).fill(want);
+        for (int i = 0; i < 40; i++) assertEquals(want[i] & 0xffffffffL, a[i]);
+    }
+
+    @Test
+    void boundedLongStreamUsesTheRangeWidth() {
+        long[] got = Tandem.seed(9).longs(100, 10, 1010).toArray();
+        Tandem g = Tandem.seed(9);
+        for (int i = 0; i < 100; i++) assertEquals(10 + g.nextInt(1000), got[i]);
     }
 
     @Test

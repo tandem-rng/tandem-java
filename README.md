@@ -32,6 +32,11 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The artif
   the plain fill, the position moves by exactly n draws, and a rejected draw retries on
   `sub(0x424c573332 or 0x424c573634).split(g)` of the fill's key, from position 0, where g is the aligned start position over the width in bits plus i, so chunked fills equal whole fills. Scalar
   `nextInt(bound)` stays the sequential rejection loop, so after a rejection the two differ.
+- Draw width of bounded draws (Appendix A of the specification): an interface typed by result or
+  bounds takes the width from the range, 32 bits when the range is at most 2^32 and 64 bits
+  above, whatever the result type. So `nextLong(1000)` equals `nextInt(1000)` on the same stream,
+  `nextLongs(a, 1000)` consumes 32-bit draws, and `[lo, hi)` draws on `hi - lo` and adds `lo`.
+  `belowU32`, `belowU64`, `fillBelowU32` and `fillBelowU64` keep their widths.
 - Implements `java.util.random.RandomGenerator.SplittableGenerator`, so it drives `ints()`,
   `doubles()`, `splits()` and `Collections.shuffle`. The interface's
   default `nextGaussian` is overridden by the Box-Muller transform. Every bounded integer draw

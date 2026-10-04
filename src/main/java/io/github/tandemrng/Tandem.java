@@ -884,10 +884,33 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         fillBelowU32(a, 0, a.length, bound);
     }
 
-    /** Fills {@code a} uniformly from {@code [0, bound)} with {@link #fillBelowU64}. */
+    // Appendix A: an interface typed by result or bounds takes its draw width from the range, so a
+    // long result with a range up to 2^32 uses 32-bit draws and equals the int result.
+    private static boolean narrowRange(long range) {
+        return (range - 1) >>> 32 == 0;
+    }
+
+    private long belowByRange(long range) {
+        if (!narrowRange(range)) return belowU64(range);
+        if (range == 1L << 32) return nextInt() & MASK32;
+        return belowU32((int) range) & MASK32;
+    }
+
+    /**
+     * Fills {@code a} uniformly from {@code [0, bound)}. A bound up to 2^32 uses
+     * {@link #fillBelowU32} and widens, so the fill consumes 32-bit draws. A larger bound uses
+     * {@link #fillBelowU64}.
+     */
     public void nextLongs(long[] a, long bound) {
         if (bound <= 0) throw new IllegalArgumentException("bound must be positive");
-        fillBelowU64(a, 0, a.length, bound);
+        if (!narrowRange(bound)) {
+            fillBelowU64(a, 0, a.length, bound);
+            return;
+        }
+        int[] narrow = new int[a.length];
+        if (bound == 1L << 32) fill(narrow);
+        else fillBelowU32(narrow, 0, narrow.length, (int) bound);
+        for (int i = 0; i < a.length; i++) a[i] = narrow[i] & MASK32;
     }
 
     /** Draws uniformly from {@code [0, bound)} with {@link #belowU32}. */
@@ -905,18 +928,18 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         return origin + belowU32(bound - origin);
     }
 
-    /** Draws uniformly from {@code [0, bound)} with {@link #belowU64}. */
+    /** Draws uniformly from {@code [0, bound)}. A bound up to 2^32 draws 32 bits and equals {@link #nextInt(int)}. */
     @Override
     public long nextLong(long bound) {
         if (bound <= 0) throw new IllegalArgumentException("bound must be positive");
-        return belowU64(bound);
+        return belowByRange(bound);
     }
 
-    /** Draws uniformly from {@code [origin, bound)} with {@link #belowU64}. */
+    /** Draws uniformly from {@code [origin, bound)} on the span, with the width rule of {@link #nextLong(long)}. */
     @Override
     public long nextLong(long origin, long bound) {
         if (origin >= bound) throw new IllegalArgumentException("bound must exceed origin");
-        return origin + belowU64(bound - origin);
+        return origin + belowByRange(bound - origin);
     }
 
     /** Draws a double in {@code [0, bound)} from {@link #nextDouble()}. */
