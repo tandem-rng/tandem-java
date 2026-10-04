@@ -126,6 +126,27 @@ class TandemCudaTest {
         }
     }
 
+    /** Rows at bit positions 1 and 12345 reject, so the fallback must key by the global draw index. */
+    @Test
+    void boundedFillsFromNonzeroStartsMatchTandemCudaFixtures() throws IOException {
+        CrossFixtures f = new CrossFixtures("cross_fill_below.h");
+        int[] key = CrossFixtures.key();
+        List<CrossFixtures.Row> at32 = f.tables.get("CROSS_BELOW32_AT"), at64 = f.tables.get("CROSS_BELOW64_AT");
+        assertTrue(at32.size() > 3 && at64.size() > 3);
+        for (CrossFixtures.Row row : at32) {
+            int[] got = new int[row.values().length];
+            gpu.fillBelowU32(got, (int) row.count(), new Tandem(key, row.head(), 32));
+            for (int i = 0; i < got.length; i++)
+                assertEquals((int) CrossFixtures.integer(row.values()[i]), got[i], "start " + row.head() + ", range " + row.count() + ", element " + i);
+        }
+        for (CrossFixtures.Row row : at64) {
+            long[] got = new long[row.values().length];
+            gpu.fillBelowU64(got, row.count(), new Tandem(key, row.head(), 32));
+            for (int i = 0; i < got.length; i++)
+                assertEquals(CrossFixtures.integer(row.values()[i]), got[i], "start " + row.head() + ", range " + Long.toUnsignedString(row.count()) + ", element " + i);
+        }
+    }
+
     private static void near(double want, double got, String what) {
         assertTrue(Math.abs(got - want) <= 1e-12 * (1 + Math.abs(want)), what + ": want " + want + ", got " + got);
     }

@@ -3,7 +3,7 @@
 # 12.8 and clang 19: `pixi run -e nvcc ptx` in cuda/. TANDEM_CUDA may name a local checkout
 # that contains the commit, else the script clones it into target/.
 set -eu
-TANDEM_CUDA_COMMIT=79a4ad01249d3530156a6ac8cb2264398ff74d87
+TANDEM_CUDA_COMMIT=5806e517c0948b32102cf8c1614f85b7bdbdf757
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 repo=${TANDEM_CUDA:-$here/target/tandem-cuda}

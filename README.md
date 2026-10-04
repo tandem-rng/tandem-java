@@ -189,8 +189,8 @@ try (TandemCuda gpu = TandemCuda.open(); Arena arena = Arena.ofConfined()) {   /
   normals agree to a relative 1e-12. Float normals agree to 16 ulps plus 3e-6, because the GPU
   takes the angle through `__sincosf`, whose absolute error of up to 2^-21.41 the radius multiplies.
 - A rejected bounded draw retries on the fallback stream the CPU fill uses, keyed by the global
-  draw index. `tandem-cuda` at the pinned commit keys it by the index in the fill, so the two agree
-  for fills from position 0, which its fixtures use.
+  draw index, as `tandem-cuda` does at the pinned commit. Its fixtures include fills from
+  nonzero starts with rejections.
 - A fill sets the new position through `setPosition`. So it drops the kept halves of
   `nextGaussian`, and its end position must stay below 2^63.
 
@@ -198,7 +198,7 @@ Run the JVM with `--enable-native-access=ALL-UNNAMED`, or with the name of your 
 flag, JDK 25 prints a warning at the first driver call.
 
 The kernels are `cuda/kernels/tandem_fills.cu`, entry points over `tandem.cuh` and `core.hpp` of
-[tandem-cuda](https://github.com/tandem-rng/tandem-cuda) at commit `79a4ad0`. They mirror its fill
+[tandem-cuda](https://github.com/tandem-rng/tandem-cuda) at commit `5806e51`. They mirror its fill
 kernels: the tile kernel for `K >= 8` with 16-byte stores, the direct kernel for smaller `K`, and the
 normal kernels with the fast `__sincosf` float path. `cuda/tools/build_ptx.sh` compiles them with
 nvcc 12.8 (clang 19 as host compiler, `pixi run -e nvcc ptx` in `cuda/`) into
