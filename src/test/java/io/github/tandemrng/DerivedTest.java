@@ -1,5 +1,6 @@
 package io.github.tandemrng;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -77,6 +78,44 @@ class DerivedTest {
             assertTrue(Math.abs(z - Derived.NORMAL[i]) <= 1e-12 * Math.abs(Derived.NORMAL[i]), "normal " + i);
         }
         assertEquals(Derived.NORMAL_END, ((Tandem) g).position());
+    }
+
+    @Test
+    void boundedFillsFollowTheSharedContract() {
+        for (int c = 0; c < Derived.FILL_RANGE32.length; c++) {
+            int[] a = new int[Derived.FILL_BELOW32[c].length];
+            Tandem g = Tandem.seed(42);
+            g.fillBelowU32(a, 0, a.length, Derived.FILL_RANGE32[c]);
+            assertArrayEquals(Derived.FILL_BELOW32[c], a, "range32 " + c);
+            assertEquals(32L * a.length, g.position());
+        }
+        for (int c = 0; c < Derived.FILL_RANGE64.length; c++) {
+            long[] a = new long[Derived.FILL_BELOW64[c].length];
+            Tandem g = Tandem.seed(42);
+            g.fillBelowU64(a, 0, a.length, Derived.FILL_RANGE64[c]);
+            assertArrayEquals(Derived.FILL_BELOW64[c], a, "range64 " + c);
+            assertEquals(64L * a.length, g.position());
+        }
+    }
+
+    @Test
+    void positiveBoundFills() {
+        int[] a = new int[64];
+        Tandem.seed(42).nextInts(a, 1000);
+        assertArrayEquals(Derived.FILL_BELOW32[3], a);
+        long[] b = new long[64];
+        Tandem.seed(42).nextLongs(b, 1000);
+        assertArrayEquals(Derived.FILL_BELOW64[3], b);
+    }
+
+    @Test
+    void floatNormalsAgreeWithTheCoreToFewUlps() {
+        Tandem g = start();
+        for (int i = 0; i < Derived.NORMALF.length; i++) {
+            float z = g.nextGaussianFloat();
+            assertTrue(Math.abs(z - Derived.NORMALF[i]) <= 4e-6 * (1 + Math.abs(Derived.NORMALF[i])), "normal " + i);
+        }
+        assertEquals(Derived.NORMALF_END, g.position());
     }
 
     /** The float normal evaluates the same formula on two float draws, to a few ulps. */

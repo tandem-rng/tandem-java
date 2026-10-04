@@ -496,6 +496,68 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         return unsignedMultiplyHigh(x, range);
     }
 
+    private static final long PURPOSE_BELOW32 = 0x424c573332L;
+    private static final long PURPOSE_BELOW64 = 0x424c573634L;
+
+    /**
+     * Fills {@code a[off, off + len)} uniformly from {@code [0, range)}, with {@code range} read
+     * as unsigned, by the shared parallel-friendly contract of the other ports. Element i takes
+     * draw i of {@link #fill(int[])} and the fill moves the position by exactly {@code len}
+     * draws. A rejected draw retries with Lemire's rule on the draws of
+     * {@code sub(0x424c573332).split(i)} of a generator with this key and chunk length, from
+     * position 0. Without rejections this equals repeated {@link #belowU32}, but after a
+     * rejection the sequential scalar loop and the fill differ.
+     */
+    public void fillBelowU32(int[] a, int off, int len, int range) {
+        if (range == 0) throw new IllegalArgumentException("range must be nonzero");
+        fill(a, off, len);
+        long r = range & MASK32;
+        for (int e = 0; e < len; e++) {
+            long m = (a[off + e] & MASK32) * r;
+            if ((m & MASK32) < r) {
+                long t = Integer.remainderUnsigned(-range, range) & MASK32;
+                if ((m & MASK32) < t) {
+                    Tandem f = new Tandem(k0, k1, k2, k3, 0L, chunk).sub(PURPOSE_BELOW32).split(e);
+                    do m = (f.nextInt() & MASK32) * r;
+                    while ((m & MASK32) < t);
+                }
+            }
+            a[off + e] = (int) (m >>> 32);
+        }
+    }
+
+    /** As {@link #fillBelowU32}, on 64-bit draws and {@code sub(0x424c573634)}. */
+    public void fillBelowU64(long[] a, int off, int len, long range) {
+        if (range == 0) throw new IllegalArgumentException("range must be nonzero");
+        fill(a, off, len);
+        for (int e = 0; e < len; e++) {
+            long x = a[off + e], lo = x * range;
+            if (Long.compareUnsigned(lo, range) < 0) {
+                long t = Long.remainderUnsigned(-range, range);
+                if (Long.compareUnsigned(lo, t) < 0) {
+                    Tandem f = new Tandem(k0, k1, k2, k3, 0L, chunk).sub(PURPOSE_BELOW64).split(e);
+                    do {
+                        x = f.nextLong();
+                        lo = x * range;
+                    } while (Long.compareUnsigned(lo, t) < 0);
+                }
+            }
+            a[off + e] = unsignedMultiplyHigh(x, range);
+        }
+    }
+
+    /** Fills {@code a} uniformly from {@code [0, bound)} with {@link #fillBelowU32}. */
+    public void nextInts(int[] a, int bound) {
+        if (bound <= 0) throw new IllegalArgumentException("bound must be positive");
+        fillBelowU32(a, 0, a.length, bound);
+    }
+
+    /** Fills {@code a} uniformly from {@code [0, bound)} with {@link #fillBelowU64}. */
+    public void nextLongs(long[] a, long bound) {
+        if (bound <= 0) throw new IllegalArgumentException("bound must be positive");
+        fillBelowU64(a, 0, a.length, bound);
+    }
+
     /** {@code Math.unsignedMultiplyHigh} needs JDK 18. */
     private static long unsignedMultiplyHigh(long a, long b) {
         return Math.multiplyHigh(a, b) + ((a >> 63) & b) + ((b >> 63) & a);
