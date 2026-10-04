@@ -6,6 +6,9 @@ import java.io.ObjectInputStream;
 import java.io.Serializable;
 import java.util.Objects;
 import java.util.random.RandomGenerator;
+import java.util.stream.DoubleStream;
+import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 /**
@@ -26,8 +29,10 @@ import java.util.stream.Stream;
  * <p>This class implements {@link RandomGenerator.SplittableGenerator}, so it works with
  * {@code ints()}, {@code doubles()} and, on JDK 21 and later, {@code Collections.shuffle}. The
  * interface's default {@code nextGaussian} is overridden by the Box-Muller transform of
- * {@link #nextGaussian()}, which agrees with every other Tandem port. {@code nextInt(int)} and
- * {@code nextLong(long)} use Lemire's method and likewise agree with the other ports.
+ * {@link #nextGaussian()}, which agrees with every other Tandem port.
+ * Every bounded integer draw uses Lemire's method, and the bounded {@code ints}, {@code longs}
+ * and {@code doubles} streams are loops over the scalar bounded draws. Those replace the JDK's
+ * default algorithms. The streams without bounds were already built on our draws.
  */
 public final class Tandem implements RandomGenerator.SplittableGenerator, Serializable {
     private static final long serialVersionUID = 1L;
@@ -755,6 +760,97 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     public long nextLong(long origin, long bound) {
         if (origin >= bound) throw new IllegalArgumentException("bound must exceed origin");
         return origin + belowU64(bound - origin);
+    }
+
+    /** Draws a double in {@code [0, bound)} from {@link #nextDouble()}. */
+    @Override
+    public double nextDouble(double bound) {
+        if (!(bound > 0 && bound < Double.POSITIVE_INFINITY)) throw new IllegalArgumentException("bound must be positive and finite");
+        double r = nextDouble() * bound;
+        return r < bound ? r : Math.nextDown(bound);
+    }
+
+    /** Draws a double in {@code [origin, bound)} from {@link #nextDouble()}. */
+    @Override
+    public double nextDouble(double origin, double bound) {
+        if (!(origin < bound && bound - origin < Double.POSITIVE_INFINITY))
+            throw new IllegalArgumentException("bound must exceed origin and the range must be finite");
+        double r = origin + nextDouble() * (bound - origin);
+        return r < bound ? r : Math.nextDown(bound);
+    }
+
+    /** Draws a float in {@code [0, bound)} from {@link #nextFloat()}. */
+    @Override
+    public float nextFloat(float bound) {
+        if (!(bound > 0 && bound < Float.POSITIVE_INFINITY)) throw new IllegalArgumentException("bound must be positive and finite");
+        float r = nextFloat() * bound;
+        return r < bound ? r : Math.nextDown(bound);
+    }
+
+    /** Draws a float in {@code [origin, bound)} from {@link #nextFloat()}. */
+    @Override
+    public float nextFloat(float origin, float bound) {
+        if (!(origin < bound && bound - origin < Float.POSITIVE_INFINITY))
+            throw new IllegalArgumentException("bound must exceed origin and the range must be finite");
+        float r = origin + nextFloat() * (bound - origin);
+        return r < bound ? r : Math.nextDown(bound);
+    }
+
+    // The bounded streams are sequential generators over the scalar bounded draws, so each
+    // element is the value of nextInt(origin, bound) and so on, and a stream equals a loop of
+    // scalar calls. They replace the JDK's own bounded algorithms. Do not run them in parallel:
+    // the generator is not thread-safe.
+
+    @Override
+    public IntStream ints(long streamSize, int origin, int bound) {
+        checkSize(streamSize);
+        checkIntRange(origin, bound);
+        return IntStream.generate(() -> nextInt(origin, bound)).limit(streamSize);
+    }
+
+    @Override
+    public IntStream ints(int origin, int bound) {
+        checkIntRange(origin, bound);
+        return IntStream.generate(() -> nextInt(origin, bound));
+    }
+
+    @Override
+    public LongStream longs(long streamSize, long origin, long bound) {
+        checkSize(streamSize);
+        checkLongRange(origin, bound);
+        return LongStream.generate(() -> nextLong(origin, bound)).limit(streamSize);
+    }
+
+    @Override
+    public LongStream longs(long origin, long bound) {
+        checkLongRange(origin, bound);
+        return LongStream.generate(() -> nextLong(origin, bound));
+    }
+
+    @Override
+    public DoubleStream doubles(long streamSize, double origin, double bound) {
+        checkSize(streamSize);
+        nextDoubleRangeCheck(origin, bound);
+        return DoubleStream.generate(() -> nextDouble(origin, bound)).limit(streamSize);
+    }
+
+    @Override
+    public DoubleStream doubles(double origin, double bound) {
+        nextDoubleRangeCheck(origin, bound);
+        return DoubleStream.generate(() -> nextDouble(origin, bound));
+    }
+
+    private static void checkIntRange(int origin, int bound) {
+        if (origin >= bound) throw new IllegalArgumentException("bound must exceed origin");
+    }
+
+    private static void checkLongRange(long origin, long bound) {
+        if (origin >= bound) throw new IllegalArgumentException("bound must exceed origin");
+    }
+
+    private static void nextDoubleRangeCheck(double origin, double bound) {
+        if (!(origin < bound && bound - origin < Double.POSITIVE_INFINITY))
+            throw new IllegalArgumentException("bound must exceed origin and the range must be finite");
     }
 
     /**

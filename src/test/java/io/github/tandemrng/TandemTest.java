@@ -195,4 +195,32 @@ class TandemTest {
         Collections.sort(a);
         assertEquals(list, a);
     }
+
+    @Test
+    void boundedStreamsAreLoopsOfScalarDraws() {
+        Tandem g = Tandem.seed(13), h = Tandem.seed(13);
+        int[] ints = g.ints(300, 0, 1000).toArray();
+        for (int i = 0; i < ints.length; i++) assertEquals(h.nextInt(1000), ints[i]);
+        Tandem a = Tandem.seed(13);
+        int[] shifted = a.ints(300, 10, 1010).toArray();
+        for (int i = 0; i < ints.length; i++) assertEquals(ints[i] + 10, shifted[i]);
+        long[] longs = Tandem.seed(14).longs(200, 0, 1L << 40).toArray();
+        Tandem l = Tandem.seed(14);
+        for (int i = 0; i < longs.length; i++) assertEquals(l.nextLong(1L << 40), longs[i]);
+        long[] lshift = Tandem.seed(14).longs(200, -7, (1L << 40) - 7).toArray();
+        for (int i = 0; i < longs.length; i++) assertEquals(longs[i] - 7, lshift[i]);
+        double[] ds = Tandem.seed(15).doubles(100, 2.0, 5.0).toArray();
+        Tandem d = Tandem.seed(15);
+        for (int i = 0; i < ds.length; i++) assertEquals(2.0 + d.nextDouble() * 3.0, ds[i]);
+        assertEquals(h.nextInt(0, 1000), g.ints(0, 1000).findFirst().getAsInt());
+    }
+
+    @Test
+    void boundedFloatsAndDoublesUseOurUniforms() {
+        Tandem g = Tandem.seed(16), h = Tandem.seed(16);
+        assertEquals(h.nextDouble() * 7.0, g.nextDouble(7.0));
+        assertEquals(-1.0 + h.nextDouble() * 3.0, g.nextDouble(-1.0, 2.0));
+        assertEquals(h.nextFloat() * 7f, g.nextFloat(7f));
+        assertEquals(-1f + h.nextFloat() * 3f, g.nextFloat(-1f, 2f));
+    }
 }

@@ -34,9 +34,13 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The artif
   `nextInt(bound)` stays the sequential rejection loop, so after a rejection the two differ.
 - Implements `java.util.random.RandomGenerator.SplittableGenerator`, so it drives `ints()`,
   `doubles()`, `splits()` and, on JDK 21 and later, `Collections.shuffle`. The interface's
-  default `nextGaussian` is overridden by the Box-Muller transform, and `nextInt(bound)`,
-  `nextInt(origin, bound)`, `nextLong(bound)` and `nextLong(origin, bound)` use Lemire's method.
-  The bounded `ints(n, origin, bound)` family stays with the JDK's own algorithm.
+  default `nextGaussian` is overridden by the Box-Muller transform. Every bounded integer draw
+  uses Lemire's method: `nextInt(bound)`, `nextInt(origin, bound)`, `nextLong(bound)`,
+  `nextLong(origin, bound)` and the bounded `ints`, `longs` and `doubles` streams, which are
+  sequential loops over those scalar draws (so `ints(n, 0, 1000)` equals n calls of
+  `nextInt(1000)`, and an origin shifts by addition). The bounded `nextDouble` and `nextFloat`
+  scale our uniforms. These replace the JDK default algorithms. Do not run the streams in
+  parallel.
 - `TandemProvider` adapts a generator to Apache Commons RNG's `UniformRandomProvider`. The
   dependency `commons-rng-client-api` is optional: add it to your build to use the class.
 - `Serializable`. The stream survives a round trip through its transport form.
