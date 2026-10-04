@@ -107,22 +107,23 @@ CI runs `mvn -B verify` on JDK 17 and 21, on Linux and macOS.
 
 ## Speed
 
-One thread, `pixi run bench` (`tools/Bench.java`). Each generator runs in its own JVM. The
-numbers are the minimum of seven runs after three warm-up runs: nanoseconds per scalar draw,
-and GiB/s for arrays of 2^24 elements, filled by a loop of draws or by `Tandem.fill`.
-
-The figures are not recorded yet. The Apple M4 was not quiet during the measurement, and this
-README quotes only figures taken on an idle machine.
+One thread, `pixi run bench` (`tools/Bench.java`), Apple M4 Pro, JDK 21.0.10 (Azul Zulu). Each
+generator runs in its own JVM. The numbers are the minimum of seven runs after three warm-up
+runs: nanoseconds per scalar draw, and GiB/s for arrays of 2^24 elements, filled by a loop of
+draws or by `Tandem.fill`.
 
 | generator | nextInt ns | nextLong ns | nextDouble ns | int[] loop GiB/s | double[] loop GiB/s | int[] fill GiB/s | double[] fill GiB/s |
 |---|---|---|---|---|---|---|---|
-| Tandem | | | | | | | |
-| L64X128MixRandom | | | | | | - | - |
-| SplittableRandom | | | | | | - | - |
+| Tandem | 1.56 | 2.10 | 2.16 | 2.39 | 3.50 | 5.58 | 6.08 |
+| L64X128MixRandom | 1.14 | 1.13 | 1.12 | 3.32 | 6.57 | - | - |
+| SplittableRandom | 0.41 | 0.44 | 0.59 | 9.46 | 15.95 | - | - |
 
-Each lane of a row is independent, so a block of 32 rows is generated lane by lane with the
-lane's eight state words in registers. A scalar draw reads the cached block. `nextGaussian`
-uses `StrictMath`, which gives the same normals on every JVM and costs more than `Math`.
+A scalar draw costs in proportion to the bytes it takes, because every row is generated on
+demand and generation dominates: a `long` takes twice the stream of an `int`. Each lane of a
+row is independent, so the cache holds a block of 32 rows. Four lanes step through the block
+together with their state in registers and store packed `long` pairs. The seeding function runs
+four lanes at a time in the same way. `nextGaussian` uses `StrictMath`, which gives the same
+normals on every JVM and costs more than `Math`.
 
 ## AI assistance
 
