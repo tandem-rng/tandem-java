@@ -152,4 +152,21 @@ class DerivedTest {
         }
         assertEquals(probe.position(), g.position());
     }
+
+    @Test
+    void rangeZeroReturnsZeroAndConsumesOneDraw() {
+        Tandem g = Tandem.seed(17);
+        assertEquals(0, g.belowU32(0));
+        assertEquals(32, g.position());
+        assertEquals(0L, g.belowU64(0L));
+        assertEquals(128, g.position());
+        int[] a = {5, 5, 5};
+        long[] b = {5, 5, 5};
+        g.fillBelowU32(a, 0, 3, 0);
+        assertEquals(0, a[0] | a[1] | a[2]);
+        assertEquals(128 + 96, g.position());
+        g.fillBelowU64(b, 0, 3, 0L);
+        assertEquals(0L, b[0] | b[1] | b[2]);
+        assertEquals(256 + 192, g.position());
+    }
 }
