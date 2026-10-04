@@ -90,6 +90,12 @@ Positions are unsigned 64-bit values held in a `long`. `Tandem.seed(long)` reads
 as an unsigned 64-bit seed. `belowU32` and `belowU64` take their bound as an unsigned value, and a bound of 0 returns 0 and consumes one draw (specification Appendix A), so
 they reach ranges above `Integer.MAX_VALUE` and `Long.MAX_VALUE`.
 
+Parallel use: element `i` of a fill is draw `i`, so ranks, threads or devices that start at the
+position of their first element, or draw from `split(task)`, reproduce a serial run for any
+decomposition, as
+[Appendix B](https://github.com/tandem-rng/spec/blob/main/SPEC.md#appendix-b-parallel-decomposition-non-normative)
+of the specification shows.
+
 ## Tests
 
 ```sh
