@@ -105,13 +105,16 @@ int main() {
     }
     std::printf("    };\n    static final long NORMAL_END = %" PRIu64 "L;\n", g.position());
 
-    // Float normals agree across ports to a few ulps. Seven digits hide the libm differences.
+    // Float normals agree across ports to a few ulps. The float core can differ by an ulp between
+    // compilers, so the fixtures take the double Box-Muller of the float uniforms, rounded to
+    // float, which is stable.
     tandem::Rng f(42);
     f.bit();
     std::printf("\n    static final float[] NORMALF = {\n");
     for (int i = 0; i < COUNT; i++) {
-        auto z = f.normalf2();
-        std::printf("        %.7gf,\n        %.7gf,\n", (double)z.z0, (double)z.z1);
+        float a = f.frand();
+        auto z = tandem::box_muller2((double)a, (double)f.frand());
+        std::printf("        %.7gf,\n        %.7gf,\n", (double)(float)z.z0, (double)(float)z.z1);
     }
     std::printf("    };\n    static final long NORMALF_END = %" PRIu64 "L;\n", f.position());
 
@@ -138,9 +141,9 @@ int main() {
         r.set_position(pos);
         std::printf("        {");
         for (int j = 0; j < 17; j++) {
-            auto z = tandem::box_muller2_f32(r.at_frand(2 * j), r.at_frand(2 * j + 1));
-            std::printf("%s%.7gf", j ? ", " : "", (double)z.z0);
-            if (2 * j + 1 < 33) std::printf(", %.7gf", (double)z.z1);
+            auto z = tandem::box_muller2((double)r.at_frand(2 * j), (double)r.at_frand(2 * j + 1));
+            std::printf("%s%.7gf", j ? ", " : "", (double)(float)z.z0);
+            if (2 * j + 1 < 33) std::printf(", %.7gf", (double)(float)z.z1);
         }
         std::printf("},\n");
     }
