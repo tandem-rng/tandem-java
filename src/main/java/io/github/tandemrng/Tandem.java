@@ -55,6 +55,15 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     private final int chunk;
     private long pos;
     private transient Cache cache;
+    /** Kept sine halves of the last scalar Box-Muller pairs, see {@link #nextGaussian()}. */
+    private transient boolean hasSpare, hasSpareF;
+    private transient double spare;
+    private transient float spareF;
+
+    private void dropSpares() {
+        hasSpare = false;
+        hasSpareF = false;
+    }
 
     /**
      * A block of consecutive rows in stream order, and the states of the eight lanes of their
@@ -166,6 +175,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     public void setPosition(long position) {
         if (position < 0) throw new IllegalArgumentException("position must be below 2^63");
         pos = position;
+        dropSpares();
     }
 
     /** Returns an independent generator with the same key, position and chunk length. */
@@ -593,27 +603,116 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     }
 
     /**
-     * Draws a standard normal by Box-Muller from two double draws {@code a} and {@code b}:
-     * {@code sqrt(-2 ln(1 - a)) cos(2 pi b)}. It uses {@link StrictMath}, so the result is the
-     * same on every JVM, and agrees with the other ports to a relative 1e-12.
+     * Returns the cosine half of the next Box-Muller pair, {@code sqrt(-2 ln(1 - a)) cos(2 pi b)}
+     * from two double draws {@code a} and {@code b}, and keeps the sine half for the next call,
+     * which returns it without drawing. Repeated calls therefore give exactly the sequence of
+     * {@link #fillGaussian(double[])}. The kept half is dropped by {@code setPosition},
+     * {@code split}, {@code fork} and {@code sub}, and is not serialized, so the first call after
+     * deserialization starts a fresh pair. Other draws do not touch it. It uses
+     * {@link StrictMath}, so the result is the same on every JVM, and agrees with the other
+     * ports to a relative 1e-12.
      */
     @Override
     public double nextGaussian() {
+        if (hasSpare) {
+            hasSpare = false;
+            return spare;
+        }
         double a = nextDouble();
         double b = nextDouble();
-        return StrictMath.sqrt(-2.0 * StrictMath.log(1.0 - a)) * StrictMath.cos(TWO_PI * b);
+        double r = StrictMath.sqrt(-2.0 * StrictMath.log(1.0 - a));
+        spare = r * StrictMath.sin(TWO_PI * b);
+        hasSpare = true;
+        return r * StrictMath.cos(TWO_PI * b);
+    }
+
+    /** Draws a Box-Muller pair {@code {cos, sin}} from two double draws, ignoring the kept half. */
+    public double[] nextGaussian2() {
+        double a = nextDouble();
+        double b = nextDouble();
+        return gaussianPair(a, b);
+    }
+
+    private static double[] gaussianPair(double a, double b) {
+        double r = StrictMath.sqrt(-2.0 * StrictMath.log(1.0 - a));
+        return new double[] {r * StrictMath.cos(TWO_PI * b), r * StrictMath.sin(TWO_PI * b)};
     }
 
     /**
-     * Draws a standard normal computed in float from two float draws, with the same formula and
-     * the same cosine branch as {@link #nextGaussian()}. It is a different stream of values from
-     * rounding {@code nextGaussian()}, and agrees with other ports only to a few ulps.
+     * Fills with standard normals in pairs: elements {@code 2j} and {@code 2j + 1} are the cosine
+     * and sine halves from uniforms {@code 2j} and {@code 2j + 1} of {@link #fill(double[])}. An
+     * odd length uses the cosine half of its last pair and still consumes both uniforms. The
+     * kept half of {@link #nextGaussian()} is neither used nor changed.
+     */
+    public void fillGaussian(double[] a) {
+        fillGaussian(a, 0, a.length);
+    }
+
+    /** As {@link #fillGaussian(double[])} on {@code a[off, off + len)}. */
+    public void fillGaussian(double[] a, int off, int len) {
+        Objects.checkFromIndexSize(off, len, a.length);
+        double[] u = new double[2 * Math.min((len + 1) / 2, GAUSSIAN_BLOCK)];
+        for (int i = off, end = off + len; i < end; ) {
+            int pairs = Math.min((end - i + 1) / 2, GAUSSIAN_BLOCK);
+            fill(u, 0, 2 * pairs);
+            for (int j = 0; j < pairs; j++, i += 2) {
+                double[] z = gaussianPair(u[2 * j], u[2 * j + 1]);
+                a[i] = z[0];
+                if (i + 1 < end) a[i + 1] = z[1];
+            }
+        }
+    }
+
+    private static final int GAUSSIAN_BLOCK = 256;
+
+    /**
+     * As {@link #nextGaussian()} computed in float from two float draws, with its own kept sine
+     * half. The arithmetic is float with {@link StrictMath} on the float values rounded back to
+     * float, so results agree with other ports only to a few ulps.
      */
     public float nextGaussianFloat() {
+        if (hasSpareF) {
+            hasSpareF = false;
+            return spareF;
+        }
         float u = nextFloat();
         float v = nextFloat();
         float r = (float) StrictMath.sqrt(-2.0f * (float) StrictMath.log(1.0f - u));
+        spareF = r * (float) StrictMath.sin(TWO_PI_F * v);
+        hasSpareF = true;
         return r * (float) StrictMath.cos(TWO_PI_F * v);
+    }
+
+    /** Draws a float Box-Muller pair {@code {cos, sin}} from two float draws, ignoring the kept half. */
+    public float[] nextGaussianFloat2() {
+        float u = nextFloat();
+        float v = nextFloat();
+        return gaussianPairF(u, v);
+    }
+
+    private static float[] gaussianPairF(float u, float v) {
+        float r = (float) StrictMath.sqrt(-2.0f * (float) StrictMath.log(1.0f - u));
+        return new float[] {r * (float) StrictMath.cos(TWO_PI_F * v), r * (float) StrictMath.sin(TWO_PI_F * v)};
+    }
+
+    /** As {@link #fillGaussian(double[])} in float, from uniforms of {@link #fill(float[])}. */
+    public void fillGaussian(float[] a) {
+        fillGaussian(a, 0, a.length);
+    }
+
+    /** As {@link #fillGaussian(float[])} on {@code a[off, off + len)}. */
+    public void fillGaussian(float[] a, int off, int len) {
+        Objects.checkFromIndexSize(off, len, a.length);
+        float[] u = new float[2 * Math.min((len + 1) / 2, GAUSSIAN_BLOCK)];
+        for (int i = off, end = off + len; i < end; ) {
+            int pairs = Math.min((end - i + 1) / 2, GAUSSIAN_BLOCK);
+            fill(u, 0, 2 * pairs);
+            for (int j = 0; j < pairs; j++, i += 2) {
+                float[] z = gaussianPairF(u[2 * j], u[2 * j + 1]);
+                a[i] = z[0];
+                if (i + 1 < end) a[i + 1] = z[1];
+            }
+        }
     }
 
     // ---- Random access ----------------------------------------------------------------------
@@ -865,6 +964,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
 
     /** The key of a child: the exposed or hidden half of F under this key. */
     private Tandem child(long counter, int domain, int aux, boolean hidden) {
+        dropSpares();
         int[] s = new int[8];
         fKeyed(k0, k1, k2, k3, counter, domain, aux, s);
         int o = hidden ? 4 : 0;
@@ -885,6 +985,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
      */
     public Tandem[] fork(int n) {
         if (n < 0) throw new IllegalArgumentException("n must not be negative");
+        dropSpares();
         long b = pos >>> 7;
         Tandem[] kids = new Tandem[n];
         for (int i = 0; i < n; i++) kids[i] = child(b, DOMAIN_FORK, i >>> 1, (i & 1) != 0);

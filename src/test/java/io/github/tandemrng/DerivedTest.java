@@ -73,8 +73,10 @@ class DerivedTest {
     @Test
     void normalsThroughTheInterface() {
         RandomGenerator g = start();
+        // Each scalar pair is a cosine half, which the fixtures hold, then a kept sine half.
         for (int i = 0; i < Derived.NORMAL.length; i++) {
             double z = g.nextGaussian();
+            g.nextGaussian();
             assertTrue(Math.abs(z - Derived.NORMAL[i]) <= 1e-12 * Math.abs(Derived.NORMAL[i]), "normal " + i);
         }
         assertEquals(Derived.NORMAL_END, ((Tandem) g).position());
@@ -113,6 +115,7 @@ class DerivedTest {
         Tandem g = start();
         for (int i = 0; i < Derived.NORMALF.length; i++) {
             float z = g.nextGaussianFloat();
+            g.nextGaussianFloat();
             assertTrue(Math.abs(z - Derived.NORMALF[i]) <= 4e-6 * (1 + Math.abs(Derived.NORMALF[i])), "normal " + i);
         }
         assertEquals(Derived.NORMALF_END, g.position());
@@ -122,11 +125,14 @@ class DerivedTest {
     @Test
     void floatNormalFollowsTheFormula() {
         Tandem g = start(), probe = start();
-        for (int i = 0; i < 1000; i++) {
+        for (int i = 0; i < 500; i++) {
             double u = probe.nextFloat(), v = probe.nextFloat();
-            double want = Math.sqrt(-2 * Math.log(1 - u)) * Math.cos(2 * Math.PI * v);
-            float got = g.nextGaussianFloat();
-            assertTrue(Math.abs(got - want) <= 8 * Math.ulp((float) want) + 1e-6, "draw " + i + ": " + got + " vs " + want);
+            double r = Math.sqrt(-2 * Math.log(1 - u));
+            double[] want = {r * Math.cos(2 * Math.PI * v), r * Math.sin(2 * Math.PI * v)};
+            for (int h = 0; h < 2; h++) {
+                float got = g.nextGaussianFloat();
+                assertTrue(Math.abs(got - want[h]) <= 8 * Math.ulp((float) want[h]) + 1e-6, "draw " + i + " half " + h);
+            }
         }
         assertEquals(probe.position(), g.position());
     }
