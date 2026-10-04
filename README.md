@@ -118,18 +118,21 @@ draws or by `Tandem.fill`.
 
 | generator | nextInt ns | nextLong ns | nextDouble ns | nextGaussian ns | int[] loop GiB/s | double[] loop GiB/s | int[] fill GiB/s | double[] fill GiB/s |
 |---|---|---|---|---|---|---|---|---|
-| Tandem | 1.25 | 1.75 | 1.98 | 23.92 | 2.95 | 3.84 | 5.70 | 6.25 |
-| L64X128MixRandom | 1.15 | 1.11 | 1.13 | 3.38 | 3.29 | 6.40 | - | - |
-| SplittableRandom | 0.44 | 0.50 | 0.62 | 2.29 | 8.97 | 14.66 | - | - |
-| Random | 4.10 | 8.20 | 8.18 | 13.88 | 0.08 | 0.13 | - | - |
+| Tandem | 1.24 | 1.77 | 1.99 | 4.27 | 2.94 | 3.87 | 5.61 | 6.26 |
+| L64X128MixRandom | 1.16 | 1.13 | 1.15 | 3.42 | 3.24 | 6.52 | - | - |
+| SplittableRandom | 0.44 | 0.50 | 0.62 | 2.25 | 9.28 | 14.86 | - | - |
+| Random | 4.06 | 7.97 | 8.00 | 14.01 | 0.10 | 0.16 | - | - |
 A scalar draw costs in proportion to the bytes it takes, because every row is generated on
 demand and generation dominates: a `long` takes twice the stream of an `int`. The cached block is read through fields of the generator, with one unsigned range check per draw and the refill out of line. Each lane of a
 row is independent, so the cache holds a block of 32 rows. Four lanes step through the block
 together with their state in registers and store packed `long` pairs. The seeding function runs
 four lanes at a time in the same way. `long[]` and `double[]` fills generate whole blocks directly into the destination. The JIT does not vectorise the row step, so fills stay at roughly 6 GiB/s on the M4 Pro against about 20 GiB/s in `tandem-c`.
 
-`nextGaussian` is slow because it uses `StrictMath` for the same normals on every JVM, and each
-pair costs one `log`, one `cos` and one `sin`.
+Normals use no `Math` transcendental, only correctly rounded double arithmetic, so they are the
+same on every JVM: an integer range reduction and a polynomial for the log, `Math.sqrt`, and the
+angle folded into an octant with a short series for the sine and cosine. `fillGaussian` runs at
+about 2.1 GiB/s for `double[]` and 1.3 GiB/s for `float[]`.
+
 
 The Vector API (`jdk.incubator.vector`, still incubating in JDK 25) is not used. It has no
 widening or high-half 32-bit multiply, which the step needs twice. Emulating it with 16-bit pieces

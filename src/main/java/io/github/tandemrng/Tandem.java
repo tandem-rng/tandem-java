@@ -53,7 +53,6 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         0xd17cc1b7, 0xa7220a94, 0xfe13abe8, 0xfa9a6ee0, 0xedb14acc, 0x9e21c820, 0xff28b1d5, 0xef5de2b0
     };
     private static final long MASK32 = 0xffffffffL;
-    private static final double TWO_PI = 6.283185307179586;
 
     private final int k0, k1, k2, k3;
     private final int chunk;
@@ -1013,7 +1012,8 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
      * {@link #fillGaussian(double[])}. The kept half is dropped by {@code setPosition},
      * {@code split}, {@code fork} and {@code sub}, and is not serialized, so the first call after
      * deserialization starts a fresh pair. Other draws do not touch it. It uses
-     * {@link StrictMath}, so the result is the same on every JVM, and agrees with the other
+     * only correctly rounded double arithmetic (a polynomial log, a folded sine and cosine series
+     * and {@code Math.sqrt}), so the result is the same on every JVM, and agrees with the other
      * ports to a relative 1e-12.
      */
     @Override
@@ -1024,10 +1024,11 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         }
         double a = nextDouble();
         double b = nextDouble();
-        double r = StrictMath.sqrt(-2.0 * StrictMath.log(1.0 - a));
-        spare = r * StrictMath.sin(TWO_PI * b);
+        double[] z = new double[2];
+        Normals.pair(a, b, z, 0);
+        spare = z[1];
         hasSpare = true;
-        return r * StrictMath.cos(TWO_PI * b);
+        return z[0];
     }
 
     /** Draws a Box-Muller pair {@code {cos, sin}} from two double draws, ignoring the kept half. */
@@ -1038,8 +1039,9 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     }
 
     private static double[] gaussianPair(double a, double b) {
-        double r = StrictMath.sqrt(-2.0 * StrictMath.log(1.0 - a));
-        return new double[] {r * StrictMath.cos(TWO_PI * b), r * StrictMath.sin(TWO_PI * b)};
+        double[] z = new double[2];
+        Normals.pair(a, b, z, 0);
+        return z;
     }
 
     /**
@@ -1060,9 +1062,11 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
             int pairs = Math.min((end - i + 1) / 2, GAUSSIAN_BLOCK);
             fill(u, 0, 2 * pairs);
             for (int j = 0; j < pairs; j++, i += 2) {
-                double[] z = gaussianPair(u[2 * j], u[2 * j + 1]);
-                a[i] = z[0];
-                if (i + 1 < end) a[i + 1] = z[1];
+                if (i + 1 < end) {
+                    Normals.pair(u[2 * j], u[2 * j + 1], a, i);
+                } else {
+                    a[i] = gaussianPair(u[2 * j], u[2 * j + 1])[0];
+                }
             }
         }
     }
@@ -1082,11 +1086,11 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         }
         float u = nextFloat();
         float v = nextFloat();
-        float r = (float) StrictMath.sqrt(-2.0f * (float) StrictMath.log(1.0f - u));
-        double ang = TWO_PI * v;
-        spareF = r * (float) StrictMath.sin(ang);
+        float[] z = new float[2];
+        Normals.pairF(u, v, z, 0);
+        spareF = z[1];
         hasSpareF = true;
-        return r * (float) StrictMath.cos(ang);
+        return z[0];
     }
 
     /** Draws a float Box-Muller pair {@code {cos, sin}} from two float draws, ignoring the kept half. */
@@ -1097,9 +1101,9 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     }
 
     private static float[] gaussianPairF(float u, float v) {
-        float r = (float) StrictMath.sqrt(-2.0f * (float) StrictMath.log(1.0f - u));
-        double ang = TWO_PI * v;
-        return new float[] {r * (float) StrictMath.cos(ang), r * (float) StrictMath.sin(ang)};
+        float[] z = new float[2];
+        Normals.pairF(u, v, z, 0);
+        return z;
     }
 
     /** As {@link #fillGaussian(double[])} in float, from uniforms of {@link #fill(float[])}. */
@@ -1115,9 +1119,11 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
             int pairs = Math.min((end - i + 1) / 2, GAUSSIAN_BLOCK);
             fill(u, 0, 2 * pairs);
             for (int j = 0; j < pairs; j++, i += 2) {
-                float[] z = gaussianPairF(u[2 * j], u[2 * j + 1]);
-                a[i] = z[0];
-                if (i + 1 < end) a[i + 1] = z[1];
+                if (i + 1 < end) {
+                    Normals.pairF(u[2 * j], u[2 * j + 1], a, i);
+                } else {
+                    a[i] = gaussianPairF(u[2 * j], u[2 * j + 1])[0];
+                }
             }
         }
     }
