@@ -56,15 +56,25 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     private long pos;
     private transient Cache cache;
 
-    /** The eight lanes of the group holding the cached row, word-major, and that row. */
+    /**
+     * A block of consecutive rows in stream order, and the states of the eight lanes of their
+     * group, four exposed and four hidden words per lane. Each lane steps through a whole block
+     * with its state in registers, which is why the cache holds a block and not a single row.
+     */
     private static final class Cache {
         final int[] o = new int[32];
         final int[] h = new int[32];
-        final int[] words = new int[32];
+        final int[] buf = new int[BLOCK_ROWS * 32];
         final int[] scratch = new int[8];
-        /** Row the lane state and {@code words} belong to, or -1 before the first row. */
-        long row = -1;
+        /** First row held in {@code buf} and how many rows it holds. */
+        long start;
+        int count;
+        /** The group the lane states belong to and the number of steps they have taken. */
+        long group = -1;
+        int next;
     }
+
+    private static final int BLOCK_ROWS = 32;
 
     // ---- Construction and transport ---------------------------------------------------------
 
@@ -227,66 +237,90 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         f(s);
     }
 
-    /** One step of all eight lanes. A single straight-line body per lane keeps the loop simple for the JIT. */
-    private static void stepLanes(int[] o, int[] h) {
+    /**
+     * Steps every lane {@code rows} times and writes the exposed halves to {@code buf} in
+     * stream order: row j, lane l, word w at {@code 32 j + 4 l + w}.
+     */
+    private static void generate(int[] o, int[] h, int[] buf, int rows) {
         for (int l = 0; l < 8; l++) {
-            int o0 = o[l], o1 = o[8 + l], o2 = o[16 + l], o3 = o[24 + l];
-            int h0 = h[l], h1 = h[8 + l], h2 = h[16 + l], h3 = h[24 + l];
-            long p0 = (o0 & MASK32) * ((h0 | 1) & MASK32);
-            long p1 = (o2 & MASK32) * ((h1 | 1) & MASK32);
-            int lo0 = (int) p0, hi0 = (int) (p0 >>> 32);
-            int lo1 = (int) p1, hi1 = (int) (p1 >>> 32);
-            int n0 = o1 ^ hi1 ^ lo1;
-            int n1 = Integer.rotateLeft(lo1, 16) ^ h2;
-            int n2 = o3 ^ hi0 ^ lo0;
-            int n3 = Integer.rotateLeft(lo0, 16) ^ h3;
-            h0 ^= Integer.rotateLeft(h1, 7);
-            h1 ^= Integer.rotateLeft(h2, 13);
-            h2 ^= Integer.rotateLeft(h3, 22);
-            h3 ^= Integer.rotateLeft(h0, 3);
-            o[l] = n0;
-            o[8 + l] = n1;
-            o[16 + l] = n2;
-            o[24 + l] = n3;
-            h[l] = (h0 + CLOCK_WEYL) ^ n0;
-            h[8 + l] = h1;
-            h[16 + l] = h2;
-            h[24 + l] = h3;
+            int o0 = o[4 * l], o1 = o[4 * l + 1], o2 = o[4 * l + 2], o3 = o[4 * l + 3];
+            int h0 = h[4 * l], h1 = h[4 * l + 1], h2 = h[4 * l + 2], h3 = h[4 * l + 3];
+            for (int j = 0, b = 4 * l; j < rows; j++, b += 32) {
+                long p0 = (o0 & MASK32) * ((h0 | 1) & MASK32);
+                long p1 = (o2 & MASK32) * ((h1 | 1) & MASK32);
+                int n0 = o1 ^ (int) (p1 >>> 32) ^ (int) p1;
+                int n1 = Integer.rotateLeft((int) p1, 16) ^ h2;
+                int n2 = o3 ^ (int) (p0 >>> 32) ^ (int) p0;
+                int n3 = Integer.rotateLeft((int) p0, 16) ^ h3;
+                h0 ^= Integer.rotateLeft(h1, 7);
+                h1 ^= Integer.rotateLeft(h2, 13);
+                h2 ^= Integer.rotateLeft(h3, 22);
+                h3 ^= Integer.rotateLeft(h0, 3);
+                h0 = (h0 + CLOCK_WEYL) ^ n0;
+                o0 = n0;
+                o1 = n1;
+                o2 = n2;
+                o3 = n3;
+                buf[b] = o0;
+                buf[b + 1] = o1;
+                buf[b + 2] = o2;
+                buf[b + 3] = o3;
+            }
+            o[4 * l] = o0;
+            o[4 * l + 1] = o1;
+            o[4 * l + 2] = o2;
+            o[4 * l + 3] = o3;
+            h[4 * l] = h0;
+            h[4 * l + 1] = h1;
+            h[4 * l + 2] = h2;
+            h[4 * l + 3] = h3;
         }
     }
 
     // ---- Rows -------------------------------------------------------------------------------
 
-    /** Returns the cached 32 words of the row that holds bit position p, producing the row if needed. */
-    private int[] rowFor(long p) {
+    /**
+     * Returns the offset in the cache buffer of the row that holds bit position p, producing
+     * the block of that row first if needed.
+     */
+    private int locate(long p) {
         Cache c = cache;
         long r = p >>> 10;
-        if (c == null || c.row != r) c = load(r);
-        return c.words;
+        if (c != null) {
+            long d = r - c.start;
+            if (d >= 0 && d < c.count) return (int) d << 5;
+        }
+        return load(r);
     }
 
-    private Cache load(long r) {
+    private int load(long r) {
         Cache c = cache;
         if (c == null) cache = c = new Cache();
+        c.count = 0;
         int shift = Integer.numberOfTrailingZeros(chunk);
-        if (c.row >= 0 && r > c.row && (r >>> shift) == (c.row >>> shift)) {
-            for (long s = c.row; s < r; s++) stepLanes(c.o, c.h);
-        } else {
-            long g = r >>> shift;
-            int[] t = c.scratch;
+        long g = r >>> shift;
+        int rows = Math.min(chunk, BLOCK_ROWS);
+        int first = (int) (r & (chunk - 1L)) & -rows;
+        // A block is only reachable by stepping forward, so a backward or cross-group move reseeds.
+        if (c.group != g || c.next > first) {
             for (int l = 0; l < 8; l++) {
-                fKeyed(k0, k1, k2, k3, 8L * g + l, DOMAIN_STREAM, AUX_STREAM, t);
-                for (int w = 0; w < 4; w++) {
-                    c.o[8 * w + l] = t[w];
-                    c.h[8 * w + l] = t[4 + w];
-                }
+                fKeyed(k0, k1, k2, k3, 8L * g + l, DOMAIN_STREAM, AUX_STREAM, c.scratch);
+                System.arraycopy(c.scratch, 0, c.o, 4 * l, 4);
+                System.arraycopy(c.scratch, 4, c.h, 4 * l, 4);
             }
-            for (long s = r & (chunk - 1L); s >= 0; s--) stepLanes(c.o, c.h);
+            c.group = g;
+            c.next = 0;
         }
-        for (int l = 0; l < 8; l++)
-            for (int w = 0; w < 4; w++) c.words[4 * l + w] = c.o[8 * w + l];
-        c.row = r;
-        return c;
+        for (; c.next <= first; c.next += rows) generate(c.o, c.h, c.buf, rows);
+        c.start = (g << shift) + first;
+        c.count = rows;
+        return (int) (r - c.start) << 5;
+    }
+
+    /** The word at bit position p, which need not be aligned: the 32-bit word that contains it. */
+    private int word(long p) {
+        int base = locate(p);
+        return cache.buf[base + ((int) (p >>> 5) & 31)];
     }
 
     /** The w bits at bit position p, aligned to w, for w up to 64, without touching the cache. */
@@ -306,7 +340,8 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
 
     /** The w bits at the aligned position p, through the row cache. */
     private long rawCached(long p, int w) {
-        return extract(rowFor(p), (int) (p >>> 5) & 31, (int) (p & 31), w);
+        int base = locate(p);
+        return extract(cache.buf, base + ((int) (p >>> 5) & 31), (int) (p & 31), w);
     }
 
     private static long align(long p, int w) {
@@ -320,21 +355,21 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     public boolean nextBoolean() {
         long p = pos;
         pos = p + 1;
-        return ((rowFor(p)[(int) (p >>> 5) & 31] >>> (int) (p & 31)) & 1) != 0;
+        return ((word(p) >>> (int) (p & 31)) & 1) != 0;
     }
 
     /** Draws a signed 8-bit integer. */
     public byte nextByte() {
         long p = align(pos, 8);
         pos = p + 8;
-        return (byte) (rowFor(p)[(int) (p >>> 5) & 31] >>> (int) (p & 31));
+        return (byte) (word(p) >>> (int) (p & 31));
     }
 
     /** Draws a signed 16-bit integer. */
     public short nextShort() {
         long p = align(pos, 16);
         pos = p + 16;
-        return (short) (rowFor(p)[(int) (p >>> 5) & 31] >>> (int) (p & 31));
+        return (short) (word(p) >>> (int) (p & 31));
     }
 
     /** Draws a signed 32-bit integer. */
@@ -342,7 +377,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     public int nextInt() {
         long p = align(pos, 32);
         pos = p + 32;
-        return rowFor(p)[(int) (p >>> 5) & 31];
+        return word(p);
     }
 
     /** Draws a signed 64-bit integer. */
@@ -350,8 +385,8 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     public long nextLong() {
         long p = align(pos, 64);
         pos = p + 64;
-        int[] x = rowFor(p);
-        int i = (int) (p >>> 5) & 31;
+        int i = locate(p) + ((int) (p >>> 5) & 31);
+        int[] x = cache.buf;
         return (x[i] & MASK32) | ((long) x[i + 1] << 32);
     }
 
@@ -359,8 +394,8 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     public long[] nextLong128() {
         long p = align(pos, 128);
         pos = p + 128;
-        int[] x = rowFor(p);
-        int i = (int) (p >>> 5) & 31;
+        int i = locate(p) + ((int) (p >>> 5) & 31);
+        int[] x = cache.buf;
         return new long[] {(x[i] & MASK32) | ((long) x[i + 1] << 32), (x[i + 2] & MASK32) | ((long) x[i + 3] << 32)};
     }
 
@@ -591,9 +626,14 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         Objects.checkFromIndexSize(off, len, a.length);
         long p = beginFill(32, len);
         int i = off, end = off + len;
-        for (; i < end && (p & 1023) != 0; i++, p += 32) a[i] = rowFor(p)[(int) (p >>> 5) & 31];
-        for (; end - i >= 32; i += 32, p += 1024) System.arraycopy(rowFor(p), 0, a, i, 32);
-        for (; i < end; i++, p += 32) a[i] = rowFor(p)[(int) (p >>> 5) & 31];
+        for (; i < end && (p & 1023) != 0; i++, p += 32) a[i] = word(p);
+        while (end - i >= 32) {
+            int base = locate(p), rows = Math.min(cache.count - (base >> 5), (end - i) >> 5);
+            System.arraycopy(cache.buf, base, a, i, rows << 5);
+            i += rows << 5;
+            p += (long) rows << 10;
+        }
+        for (; i < end; i++, p += 32) a[i] = word(p);
     }
 
     /** Fills with the same 64-bit values as repeated {@link #nextLong()}. */
@@ -607,9 +647,12 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         long p = beginFill(64, len);
         int i = off, end = off + len;
         for (; i < end && (p & 1023) != 0; i++, p += 64) a[i] = rawCached(p, 64);
-        for (; end - i >= 16; i += 16, p += 1024) {
-            int[] x = rowFor(p);
-            for (int k = 0; k < 16; k++) a[i + k] = (x[2 * k] & MASK32) | ((long) x[2 * k + 1] << 32);
+        while (end - i >= 16) {
+            int base = locate(p), rows = Math.min(cache.count - (base >> 5), (end - i) >> 4);
+            int[] x = cache.buf;
+            for (int k = 0, n = rows << 4; k < n; k++) a[i + k] = (x[base + 2 * k] & MASK32) | ((long) x[base + 2 * k + 1] << 32);
+            i += rows << 4;
+            p += (long) rows << 10;
         }
         for (; i < end; i++, p += 64) a[i] = rawCached(p, 64);
     }
@@ -624,12 +667,15 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         Objects.checkFromIndexSize(off, len, a.length);
         long p = beginFill(32, len);
         int i = off, end = off + len;
-        for (; i < end && (p & 1023) != 0; i++, p += 32) a[i] = toFloat(rowFor(p)[(int) (p >>> 5) & 31]);
-        for (; end - i >= 32; i += 32, p += 1024) {
-            int[] x = rowFor(p);
-            for (int k = 0; k < 32; k++) a[i + k] = toFloat(x[k]);
+        for (; i < end && (p & 1023) != 0; i++, p += 32) a[i] = toFloat(word(p));
+        while (end - i >= 32) {
+            int base = locate(p), rows = Math.min(cache.count - (base >> 5), (end - i) >> 5);
+            int[] x = cache.buf;
+            for (int k = 0, n = rows << 5; k < n; k++) a[i + k] = toFloat(x[base + k]);
+            i += rows << 5;
+            p += (long) rows << 10;
         }
-        for (; i < end; i++, p += 32) a[i] = toFloat(rowFor(p)[(int) (p >>> 5) & 31]);
+        for (; i < end; i++, p += 32) a[i] = toFloat(word(p));
     }
 
     /** Fills with the same values as repeated {@link #nextDouble()}. Complex fills use this with length 2n. */
@@ -643,9 +689,13 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         long p = beginFill(64, len);
         int i = off, end = off + len;
         for (; i < end && (p & 1023) != 0; i++, p += 64) a[i] = toDouble(rawCached(p, 64));
-        for (; end - i >= 16; i += 16, p += 1024) {
-            int[] x = rowFor(p);
-            for (int k = 0; k < 16; k++) a[i + k] = toDouble((x[2 * k] & MASK32) | ((long) x[2 * k + 1] << 32));
+        while (end - i >= 16) {
+            int base = locate(p), rows = Math.min(cache.count - (base >> 5), (end - i) >> 4);
+            int[] x = cache.buf;
+            for (int k = 0, n = rows << 4; k < n; k++)
+                a[i + k] = toDouble((x[base + 2 * k] & MASK32) | ((long) x[base + 2 * k + 1] << 32));
+            i += rows << 4;
+            p += (long) rows << 10;
         }
         for (; i < end; i++, p += 64) a[i] = toDouble(rawCached(p, 64));
     }
@@ -661,15 +711,18 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         long p = beginFill(8, len);
         int i = off, end = off + len;
         for (; i < end && (p & 1023) != 0; i++, p += 8) a[i] = (byte) rawCached(p, 8);
-        for (; end - i >= 128; i += 128, p += 1024) {
-            int[] x = rowFor(p);
-            for (int k = 0; k < 32; k++) {
-                int v = x[k];
+        while (end - i >= 128) {
+            int base = locate(p), rows = Math.min(cache.count - (base >> 5), (end - i) >> 7);
+            int[] x = cache.buf;
+            for (int k = 0, n = rows << 5; k < n; k++) {
+                int v = x[base + k];
                 a[i + 4 * k] = (byte) v;
                 a[i + 4 * k + 1] = (byte) (v >>> 8);
                 a[i + 4 * k + 2] = (byte) (v >>> 16);
                 a[i + 4 * k + 3] = (byte) (v >>> 24);
             }
+            i += rows << 7;
+            p += (long) rows << 10;
         }
         for (; i < end; i++, p += 8) a[i] = (byte) rawCached(p, 8);
     }
@@ -685,12 +738,15 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         long p = beginFill(16, len);
         int i = off, end = off + len;
         for (; i < end && (p & 1023) != 0; i++, p += 16) a[i] = (short) rawCached(p, 16);
-        for (; end - i >= 64; i += 64, p += 1024) {
-            int[] x = rowFor(p);
-            for (int k = 0; k < 32; k++) {
-                a[i + 2 * k] = (short) x[k];
-                a[i + 2 * k + 1] = (short) (x[k] >>> 16);
+        while (end - i >= 64) {
+            int base = locate(p), rows = Math.min(cache.count - (base >> 5), (end - i) >> 6);
+            int[] x = cache.buf;
+            for (int k = 0, n = rows << 5; k < n; k++) {
+                a[i + 2 * k] = (short) x[base + k];
+                a[i + 2 * k + 1] = (short) (x[base + k] >>> 16);
             }
+            i += rows << 6;
+            p += (long) rows << 10;
         }
         for (; i < end; i++, p += 16) a[i] = (short) rawCached(p, 16);
     }
@@ -707,9 +763,9 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         int i = off, end = off + len;
         while (i < end) {
             int bit = (int) (p & 31);
-            int word = rowFor(p)[(int) (p >>> 5) & 31] >>> bit;
+            int rest = word(p) >>> bit;
             int bits = Math.min(32 - bit, end - i);
-            for (int b = 0; b < bits; b++) a[i + b] = ((word >>> b) & 1) != 0;
+            for (int b = 0; b < bits; b++) a[i + b] = ((rest >>> b) & 1) != 0;
             i += bits;
             p += bits;
         }

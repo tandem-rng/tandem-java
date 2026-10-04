@@ -14,8 +14,8 @@ import org.junit.jupiter.api.Test;
  */
 class FillsTest {
     private static final int[] KEY = {5, 6, 7, 8};
-    private static final int[] CHUNKS = {1, 8, 32, 1024};
-    private static final long[] STARTS = {0, 1, 7, 8, 13, 33, 64, 127, 128, 1000, 1023, 1024, 1025, 4100, 32773};
+    private static final int[] CHUNKS = {1, 8, 32, 64, 1024};
+    private static final long[] STARTS = {0, 1, 7, 8, 13, 33, 64, 127, 128, 1000, 1023, 1024, 1025, 4100, 32773, 1024L * 40 + 5, 1024L * 100 + 3};
     private static final int[] LENGTHS = {0, 1, 5, 31, 63, 64, 65, 129, 257, 1100};
 
     private record Case(String name, BiFunction<Tandem, Integer, Object> fill, BiFunction<Tandem, Integer, Object> draws) {}
@@ -131,6 +131,17 @@ class FillsTest {
                         assertEquals(draws.position(), fill.position(), where);
                         assertEquals(draws.nextLong(), fill.nextLong(), where + " continuation");
                     }
+    }
+
+    /** Random access evaluates the specification's definition directly, with no row or block cache. */
+    @Test
+    void blocksAgreeWithRandomAccessAtEveryChunkLength() {
+        for (int k : new int[] {1, 2, 8, 64, 1024, 65536}) {
+            Tandem g = new Tandem(KEY, 0L, k);
+            int[] a = new int[32 * 100 + 7];
+            g.copy().fill(a);
+            for (int i = 0; i < a.length; i++) assertEquals(g.atInt(i), a[i], "K=" + k + " word " + i);
+        }
     }
 
     @Test
