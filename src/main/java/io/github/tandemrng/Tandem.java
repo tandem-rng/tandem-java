@@ -65,6 +65,8 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     /** Kept sine halves of the last scalar Box-Muller pairs, see {@link #nextGaussian()}. */
     private transient boolean hasSpare, hasSpareF;
     private transient double spare;
+    private transient double[] pairBuf;
+    private transient float[] pairBufF;
     private transient float spareF;
 
     private void dropSpares() {
@@ -1027,7 +1029,8 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         }
         double a = nextDouble();
         double b = nextDouble();
-        double[] z = new double[2];
+        double[] z = pairBuf;
+        if (z == null) pairBuf = z = new double[2];
         Normals.pair(a, b, z, 0);
         spare = z[1];
         hasSpare = true;
@@ -1089,7 +1092,8 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         }
         float u = nextFloat();
         float v = nextFloat();
-        float[] z = new float[2];
+        float[] z = pairBufF;
+        if (z == null) pairBufF = z = new float[2];
         Normals.pairF(u, v, z, 0);
         spareF = z[1];
         hasSpareF = true;
