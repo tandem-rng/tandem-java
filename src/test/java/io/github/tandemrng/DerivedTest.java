@@ -169,4 +169,24 @@ class DerivedTest {
         assertEquals(0L, b[0] | b[1] | b[2]);
         assertEquals(256 + 192, g.position());
     }
+
+    /** Fallback streams are keyed by the global draw index, so a cut fill equals the whole fill. */
+    @Test
+    void boundedFillsCutAnywhereEqualTheWholeFill() {
+        long start = 64L * 3 + 17;
+        for (int cut : new int[] {1, 7, 33, 100, 255}) {
+            int[] whole = new int[300], parts = new int[300];
+            new Tandem(Tandem.seed(42).keyLo(), Tandem.seed(42).keyHi(), start, 32).fillBelowU32(whole, 0, 300, 0x80000001);
+            Tandem g = new Tandem(Tandem.seed(42).keyLo(), Tandem.seed(42).keyHi(), start, 32);
+            g.fillBelowU32(parts, 0, cut, 0x80000001);
+            g.fillBelowU32(parts, cut, 300 - cut, 0x80000001);
+            assertArrayEquals(whole, parts, "u32 cut " + cut);
+            long[] whole64 = new long[300], parts64 = new long[300];
+            new Tandem(Tandem.seed(42).keyLo(), Tandem.seed(42).keyHi(), start, 32).fillBelowU64(whole64, 0, 300, 0x8000000000000001L);
+            Tandem h = new Tandem(Tandem.seed(42).keyLo(), Tandem.seed(42).keyHi(), start, 32);
+            h.fillBelowU64(parts64, 0, cut, 0x8000000000000001L);
+            h.fillBelowU64(parts64, cut, 300 - cut, 0x8000000000000001L);
+            assertArrayEquals(whole64, parts64, "u64 cut " + cut);
+        }
+    }
 }

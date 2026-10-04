@@ -825,11 +825,13 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
      * as unsigned, by the shared parallel-friendly contract of the other ports. Element i takes
      * draw i of {@link #fill(int[])} and the fill moves the position by exactly {@code len}
      * draws. A rejected draw retries with Lemire's rule on the draws of
-     * {@code sub(0x424c573332).split(i)} of a generator with this key and chunk length, from
-     * position 0. Without rejections this equals repeated {@link #belowU32}, but after a
+     * {@code sub(0x424c573332).split(g)} of a generator with this key and chunk length, from
+     * position 0. Here g is the aligned start position divided by 32, plus i, so a fill cut into
+     * chunks equals the whole fill. Without rejections this equals repeated {@link #belowU32}, but after a
      * rejection the sequential scalar loop and the fill differ.
      */
     public void fillBelowU32(int[] a, int off, int len, int range) {
+        long first = align(pos, 32) >>> 5;
         fill(a, off, len);
         if (range == 0) {
             java.util.Arrays.fill(a, off, off + len, 0);
@@ -841,7 +843,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
             if ((m & MASK32) < r) {
                 long t = Integer.remainderUnsigned(-range, range) & MASK32;
                 if ((m & MASK32) < t) {
-                    Tandem f = new Tandem(k0, k1, k2, k3, 0L, chunk).sub(PURPOSE_BELOW32).split(e);
+                    Tandem f = new Tandem(k0, k1, k2, k3, 0L, chunk).sub(PURPOSE_BELOW32).split(first + e);
                     do m = (f.nextInt() & MASK32) * r;
                     while ((m & MASK32) < t);
                 }
@@ -852,6 +854,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
 
     /** As {@link #fillBelowU32}, on 64-bit draws and {@code sub(0x424c573634)}. */
     public void fillBelowU64(long[] a, int off, int len, long range) {
+        long first = align(pos, 64) >>> 6;
         fill(a, off, len);
         if (range == 0) {
             java.util.Arrays.fill(a, off, off + len, 0L);
@@ -862,7 +865,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
             if (Long.compareUnsigned(lo, range) < 0) {
                 long t = Long.remainderUnsigned(-range, range);
                 if (Long.compareUnsigned(lo, t) < 0) {
-                    Tandem f = new Tandem(k0, k1, k2, k3, 0L, chunk).sub(PURPOSE_BELOW64).split(e);
+                    Tandem f = new Tandem(k0, k1, k2, k3, 0L, chunk).sub(PURPOSE_BELOW64).split(first + e);
                     do {
                         x = f.nextLong();
                         lo = x * range;

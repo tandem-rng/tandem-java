@@ -30,7 +30,7 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The artif
 - Bounded array fills (`nextInts(int[], bound)`, `nextLongs(long[], bound)`, and the unsigned
   `fillBelowU32`, `fillBelowU64`) follow the `tandem-cuda` contract: element i uses draw i of
   the plain fill, the position moves by exactly n draws, and a rejected draw retries on
-  `sub(0x424c573332 or 0x424c573634).split(i)` of the fill's key, from position 0. Scalar
+  `sub(0x424c573332 or 0x424c573634).split(g)` of the fill's key, from position 0, where g is the aligned start position over the width in bits plus i, so chunked fills equal whole fills. Scalar
   `nextInt(bound)` stays the sequential rejection loop, so after a rejection the two differ.
 - Implements `java.util.random.RandomGenerator.SplittableGenerator`, so it drives `ints()`,
   `doubles()`, `splits()` and `Collections.shuffle`. The interface's
