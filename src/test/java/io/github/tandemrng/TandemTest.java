@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -180,16 +179,13 @@ class TandemTest {
         assertEquals(10, Tandem.seed(3).splits(Tandem.seed(8)).limit(10).count());
     }
 
-    /** Collections.shuffle takes a RandomGenerator from JDK 21. */
     @Test
-    void shuffleDrivenByTandem() throws ReflectiveOperationException {
-        assumeTrue(Runtime.version().feature() >= 21);
+    void shuffleDrivenByTandem() {
         List<Integer> list = new ArrayList<>();
         for (int i = 0; i < 100; i++) list.add(i);
         List<Integer> a = new ArrayList<>(list), b = new ArrayList<>(list);
-        var shuffle = Collections.class.getMethod("shuffle", List.class, RandomGenerator.class);
-        shuffle.invoke(null, a, Tandem.seed(12));
-        shuffle.invoke(null, b, Tandem.seed(12));
+        Collections.shuffle(a, Tandem.seed(12));
+        Collections.shuffle(b, Tandem.seed(12));
         assertEquals(a, b);
         assertNotEquals(list, a);
         Collections.sort(a);

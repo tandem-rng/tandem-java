@@ -38,6 +38,7 @@ public final class Bench {
             case "Tandem" -> Tandem.seed(42);
             case "L64X128MixRandom" -> RandomGenerator.of("L64X128MixRandom");
             case "SplittableRandom" -> new SplittableRandom(42);
+            case "Random" -> new java.util.Random(42);
             default -> throw new IllegalArgumentException(name);
         };
     }
@@ -61,6 +62,11 @@ public final class Bench {
             for (int i = 0; i < DRAWS; i++) s += r.nextDouble();
             sink = (long) s;
         }) / DRAWS;
+        double gauss = best(() -> {
+            double s = 0;
+            for (int i = 0; i < DRAWS; i++) s += r.nextGaussian();
+            sink = (long) s;
+        }) / DRAWS;
         double intLoop = best(() -> {
             for (int i = 0; i < ARRAY; i++) ints[i] = r.nextInt();
             sink = ints[ARRAY - 1];
@@ -81,8 +87,8 @@ public final class Bench {
             }), 8);
         }
         System.out.printf(
-                "| %s | %.2f | %.2f | %.2f | %s | %s | %s | %s |%n",
-                name, nextInt, nextLong, nextDouble, gib(intLoop, 4), gib(doubleLoop, 8), intFill, doubleFill);
+                "| %s | %.2f | %.2f | %.2f | %.2f | %s | %s | %s | %s |%n",
+                name, nextInt, nextLong, nextDouble, gauss, gib(intLoop, 4), gib(doubleLoop, 8), intFill, doubleFill);
     }
 
     private static String gib(double ns, int bytes) {
@@ -95,10 +101,10 @@ public final class Bench {
             return;
         }
         System.out.printf("JDK %s, %s %s%n%n", Runtime.version(), System.getProperty("os.name"), System.getProperty("os.arch"));
-        System.out.println("| generator | nextInt ns | nextLong ns | nextDouble ns | int[] loop GiB/s | double[] loop GiB/s | int[] fill GiB/s | double[] fill GiB/s |");
-        System.out.println("|---|---|---|---|---|---|---|---|");
+        System.out.println("| generator | nextInt ns | nextLong ns | nextDouble ns | nextGaussian ns | int[] loop GiB/s | double[] loop GiB/s | int[] fill GiB/s | double[] fill GiB/s |");
+        System.out.println("|---|---|---|---|---|---|---|---|---|");
         String java = System.getProperty("java.home") + "/bin/java";
-        for (String name : new String[] {"Tandem", "L64X128MixRandom", "SplittableRandom"}) {
+        for (String name : new String[] {"Tandem", "L64X128MixRandom", "SplittableRandom", "Random"}) {
             Process p = new ProcessBuilder(java, "-Xmx2g", "-cp", System.getProperty("java.class.path"), "tools/Bench.java", name)
                     .inheritIO()
                     .start();

@@ -27,7 +27,7 @@ import java.util.stream.Stream;
  * {@link #fork(int)} or {@link #split()}.
  *
  * <p>This class implements {@link RandomGenerator.SplittableGenerator}, so it works with
- * {@code ints()}, {@code doubles()} and, on JDK 21 and later, {@code Collections.shuffle}. The
+ * {@code ints()}, {@code doubles()} and, {@code Collections.shuffle}. The
  * interface's default {@code nextGaussian} is overridden by the Box-Muller transform of
  * {@link #nextGaussian()}, which agrees with every other Tandem port.
  * Every bounded integer draw uses Lemire's method, and the bounded {@code ints}, {@code longs}
@@ -815,7 +815,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
                 lo = x * range;
             }
         }
-        return unsignedMultiplyHigh(x, range);
+        return Math.unsignedMultiplyHigh(x, range);
     }
 
     private static final long PURPOSE_BELOW32 = 0x424c573332L;
@@ -870,7 +870,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
                     } while (Long.compareUnsigned(lo, t) < 0);
                 }
             }
-            a[off + e] = unsignedMultiplyHigh(x, range);
+            a[off + e] = Math.unsignedMultiplyHigh(x, range);
         }
     }
 
@@ -884,11 +884,6 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     public void nextLongs(long[] a, long bound) {
         if (bound <= 0) throw new IllegalArgumentException("bound must be positive");
         fillBelowU64(a, 0, a.length, bound);
-    }
-
-    /** {@code Math.unsignedMultiplyHigh} needs JDK 18. */
-    private static long unsignedMultiplyHigh(long a, long b) {
-        return Math.multiplyHigh(a, b) + ((a >> 63) & b) + ((b >> 63) & a);
     }
 
     /** Draws uniformly from {@code [0, bound)} with {@link #belowU32}. */

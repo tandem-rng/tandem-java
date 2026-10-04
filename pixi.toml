@@ -4,7 +4,7 @@ channels = ["conda-forge"]
 platforms = ["osx-arm64", "linux-64"]
 
 [dependencies]
-openjdk = "21.*"
+openjdk = "25.*"
 maven = "*"
 
 [tasks]

@@ -4,7 +4,7 @@ Pure Java implementation of [Tandem8x32](https://github.com/tandem-rng/spec), a 
 pseudorandom number generator built to be fast on CPUs and GPUs alike. The artifact is
 `tandem-rng`. It produces the stream the specification defines, bit for bit.
 
-- Java 17 or later. No native code, no Vector API, no runtime dependencies.
+- Java 25 (the current LTS) or later, built with `--release 25` and tested on JDK 25 and 27. No native code, no runtime dependencies.
 - A generator is its transport form (128-bit key, 64-bit bit position, chunk length `K`) plus
   a cache of one block of 32 rows of the stream. The cache never changes a drawn value and is
   not serialized.
@@ -33,7 +33,7 @@ pseudorandom number generator built to be fast on CPUs and GPUs alike. The artif
   `sub(0x424c573332 or 0x424c573634).split(i)` of the fill's key, from position 0. Scalar
   `nextInt(bound)` stays the sequential rejection loop, so after a rejection the two differ.
 - Implements `java.util.random.RandomGenerator.SplittableGenerator`, so it drives `ints()`,
-  `doubles()`, `splits()` and, on JDK 21 and later, `Collections.shuffle`. The interface's
+  `doubles()`, `splits()` and `Collections.shuffle`. The interface's
   default `nextGaussian` is overridden by the Box-Muller transform. Every bounded integer draw
   uses Lemire's method: `nextInt(bound)`, `nextInt(origin, bound)`, `nextLong(bound)`,
   `nextLong(origin, bound)` and the bounded `ints`, `longs` and `doubles` streams, which are
@@ -82,7 +82,7 @@ import org.apache.commons.rng.UniformRandomProvider;
 
 RandomGenerator r = Tandem.seed(42);
 double[] samples = r.doubles(1000).toArray();
-Collections.shuffle(list, r);                  // JDK 21 and later
+Collections.shuffle(list, r);                  // RandomGenerator overload
 UniformRandomProvider p = new TandemProvider(Tandem.seed(42));
 ```
 
@@ -93,7 +93,7 @@ they reach ranges above `Integer.MAX_VALUE` and `Long.MAX_VALUE`.
 ## Tests
 
 ```sh
-pixi run test        # mvn -B verify, JDK 21
+pixi run test        # mvn -B verify, JDK 25
 ```
 
 `VectorsTest` checks every vector of the specification. `Vectors.java` is generated from the
@@ -107,27 +107,34 @@ offsets and lengths that cut rows, blocks and chunks, and the block cache with r
 every chunk length. `GaussianTest` checks that scalar normals, pair calls and fills give one sequence, and the kept half. `TandemTest` covers child keys, forks, serialization and the
 `RandomGenerator` contract. `TandemProviderTest` covers the Commons RNG adaptor.
 
-CI runs `mvn -B verify` on JDK 17 and 21, on Linux and macOS.
+CI runs `mvn -B verify` on JDK 25 and 27, on Linux and macOS.
 
 ## Speed
 
-One thread, `pixi run bench` (`tools/Bench.java`), Apple M4 Pro, JDK 21.0.10 (Azul Zulu). Each
+One thread, `pixi run bench` (`tools/Bench.java`), Apple M4 Pro, JDK 25.0.2 (Azul Zulu). Each
 generator runs in its own JVM. The numbers are the minimum of seven runs after three warm-up
 runs: nanoseconds per scalar draw, and GiB/s for arrays of 2^24 elements, filled by a loop of
 draws or by `Tandem.fill`.
 
-| generator | nextInt ns | nextLong ns | nextDouble ns | int[] loop GiB/s | double[] loop GiB/s | int[] fill GiB/s | double[] fill GiB/s |
-|---|---|---|---|---|---|---|---|
-| Tandem | 1.24 | 1.74 | 1.96 | 2.97 | 3.88 | 5.50 | 6.31 |
-| L64X128MixRandom | 1.14 | 1.13 | 1.12 | 3.32 | 6.57 | - | - |
-| SplittableRandom | 0.41 | 0.44 | 0.59 | 9.46 | 15.95 | - | - |
-
+| generator | nextInt ns | nextLong ns | nextDouble ns | nextGaussian ns | int[] loop GiB/s | double[] loop GiB/s | int[] fill GiB/s | double[] fill GiB/s |
+|---|---|---|---|---|---|---|---|---|
+| Tandem | 1.25 | 1.75 | 1.98 | 23.92 | 2.95 | 3.84 | 5.70 | 6.25 |
+| L64X128MixRandom | 1.15 | 1.11 | 1.13 | 3.38 | 3.29 | 6.40 | - | - |
+| SplittableRandom | 0.44 | 0.50 | 0.62 | 2.29 | 8.97 | 14.66 | - | - |
+| Random | 4.10 | 8.20 | 8.18 | 13.88 | 0.08 | 0.13 | - | - |
 A scalar draw costs in proportion to the bytes it takes, because every row is generated on
 demand and generation dominates: a `long` takes twice the stream of an `int`. The cached block is read through fields of the generator, with one unsigned range check per draw and the refill out of line. Each lane of a
 row is independent, so the cache holds a block of 32 rows. Four lanes step through the block
 together with their state in registers and store packed `long` pairs. The seeding function runs
-four lanes at a time in the same way. `long[]` and `double[]` fills generate whole blocks directly into the destination. The JIT does not vectorise the row step, so fills stay at roughly 6 GiB/s on the M4 Pro against about 20 GiB/s in `tandem-c`. `nextGaussian` uses `StrictMath`, which gives the same
-normals on every JVM and costs more than `Math`.
+four lanes at a time in the same way. `long[]` and `double[]` fills generate whole blocks directly into the destination. The JIT does not vectorise the row step, so fills stay at roughly 6 GiB/s on the M4 Pro against about 20 GiB/s in `tandem-c`.
+
+`nextGaussian` is slow because it uses `StrictMath` for the same normals on every JVM, and each
+pair costs one `log`, one `cos` and one `sin`.
+
+The Vector API (`jdk.incubator.vector`, still incubating in JDK 25) is not used. It has no
+widening or high-half 32-bit multiply, which the step needs twice. Emulating it with 16-bit pieces
+or with long vectors measured 20 to 22 ns for one four-lane step on the M4 Pro, against 7.2 ns for
+four scalar lanes, so a vector fill would be slower than the scalar one.
 
 ## AI assistance
 
