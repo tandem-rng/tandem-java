@@ -182,6 +182,9 @@ try (TandemCuda gpu = TandemCuda.open(); Arena arena = Arena.ofConfined()) {   /
   as that fill does. Uniform and bounded fills are equal to the CPU fills bit for bit. Double
   normals agree to a relative 1e-12. Float normals agree to 16 ulps plus 3e-6, because the GPU
   takes the angle through `__sincosf`, whose absolute error of up to 2^-21.41 the radius multiplies.
+- A rejected bounded draw retries on the fallback stream the CPU fill uses, keyed by the global
+  draw index. `tandem-cuda` at the pinned commit keys it by the index in the fill, so the two agree
+  for fills from position 0, which its fixtures use.
 - A fill sets the new position through `setPosition`. So it drops the kept halves of
   `nextGaussian`, and its end position must stay below 2^63.
 

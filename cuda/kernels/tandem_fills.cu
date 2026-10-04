@@ -10,6 +10,38 @@
  */
 #include "tandem.cuh"
 
+namespace tandem::detail {
+
+/* The bounded kinds of the Java CPU fills. Their fallback stream is split(g) with g the global
+ * draw index, the aligned start over the width plus the element index, so a fill cut at any
+ * boundary equals the whole fill. tandem.cuh at the pinned commit keys it by the element index
+ * alone, which agrees for fills from position 0. */
+struct below32_global {};
+struct below64_global {};
+
+/* Ctx plus the global index of the fill's first draw. */
+struct CtxG : Ctx {
+    uint64_t first;
+};
+
+template <> struct elem<below32_global> {
+    using out_t = uint32_t;
+    static constexpr unsigned bits = 32;
+    __device__ static out_t make(const uint32_t w[4], unsigned i, uint64_t e, const Ctx &x) {
+        return below_u32(w[i], (uint32_t)x.range, x.key, x.K, static_cast<const CtxG &>(x).first + e);
+    }
+};
+template <> struct elem<below64_global> {
+    using out_t = uint64_t;
+    static constexpr unsigned bits = 64;
+    __device__ static out_t make(const uint32_t w[4], unsigned i, uint64_t e, const Ctx &x) {
+        return below_u64(w[2 * i] | ((uint64_t)w[2 * i + 1] << 32), x.range, x.key, x.K,
+                         static_cast<const CtxG &>(x).first + e);
+    }
+};
+
+} // namespace tandem::detail
+
 namespace {
 
 using namespace tandem;
@@ -18,13 +50,13 @@ using namespace tandem::detail;
 template <class E, bool ALIGNED>
 __device__ __forceinline__ void rows(const uint32_t key[4], uint32_t K, uint64_t g0, uint64_t r0,
                                      uint64_t r1, uint64_t b0, uint64_t b1, uint64_t range,
-                                     typename elem<E>::out_t *out) {
+                                     uint64_t first, typename elem<E>::out_t *out) {
     uint64_t c = 8u * g0 + blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
     uint64_t g = c >> 3, lane = c & 7u;
     if (g > r1 / K) return;
     uint32_t o[4], h[4];
     F_keyed(key, c, DOMAIN_STREAM, AUX_STREAM, o, h);
-    const Ctx x{key, K, range};
+    const CtxG x{{key, K, range}, first};
     uint64_t row = g * K;
     uint32_t j0 = row < r0 ? (uint32_t)(r0 - row) : 0u;
     uint32_t j1 = (uint32_t)(r1 - row < K - 1u ? r1 - row : K - 1u);
@@ -37,7 +69,7 @@ __device__ __forceinline__ void rows(const uint32_t key[4], uint32_t K, uint64_t
 template <class E, bool ALIGNED>
 __device__ __forceinline__ void tile(uint4 *tile, const uint32_t key[4], uint32_t K, uint64_t g0,
                                      uint64_t r1, uint64_t b0, uint64_t b1, uint64_t range,
-                                     typename elem<E>::out_t *out) {
+                                     uint64_t first, typename elem<E>::out_t *out) {
     constexpr unsigned GROUPS = THREADS / 8, SLOTS = GROUPS * TILE_STEPS * 8;
     uint64_t gb = g0 + blockIdx.x * (uint64_t)GROUPS;
     unsigned gi = threadIdx.x >> 3, lane = threadIdx.x & 7u;
@@ -45,7 +77,7 @@ __device__ __forceinline__ void tile(uint4 *tile, const uint32_t key[4], uint32_
     bool mine = gb + gi <= r1 / K;
     uint32_t o[4], h[4];
     F_keyed(key, c, DOMAIN_STREAM, AUX_STREAM, o, h);
-    const Ctx x{key, K, range};
+    const CtxG x{{key, K, range}, first};
     uint64_t block_first = gb * K * 128u;
     for (uint32_t jb = 0; jb < K; jb += TILE_STEPS) {
         if (block_first + jb * 128u > b1) break;
@@ -58,11 +90,11 @@ __device__ __forceinline__ void tile(uint4 *tile, const uint32_t key[4], uint32_
         __syncthreads();
         for (unsigned s = threadIdx.x; s < SLOTS; s += THREADS) {
             unsigned sg = s / (TILE_STEPS * 8), within = s % (TILE_STEPS * 8);
-            uint64_t first = ((gb + sg) * K + jb) * 128u + within * 16u;
-            if (first >= b1) continue;
+            uint64_t at = ((gb + sg) * K + jb) * 128u + within * 16u;
+            if (at >= b1) continue;
             uint4 v = tile[s];
             uint32_t w[4] = {v.x, v.y, v.z, v.w};
-            store_block<E, ALIGNED>(out, b0, b1, first, w, x);
+            store_block<E, ALIGNED>(out, b0, b1, at, w, x);
         }
         __syncthreads();
     }
@@ -81,11 +113,11 @@ __device__ __forceinline__ void fill(uint4 *smem, uint32_t k0, uint32_t k1, uint
     uint64_t b0 = p0 / 8, b1 = p1 / 8;
     bool aligned = ((reinterpret_cast<uintptr_t>(out) - b0) & 15u) == 0;
     if (K >= TILE_STEPS) {
-        if (aligned) tile<E, true>(smem, key, K, g0, r1, b0, b1, range, out);
-        else tile<E, false>(smem, key, K, g0, r1, b0, b1, range, out);
+        if (aligned) tile<E, true>(smem, key, K, g0, r1, b0, b1, range, p0 / bits, out);
+        else tile<E, false>(smem, key, K, g0, r1, b0, b1, range, p0 / bits, out);
     } else {
-        if (aligned) rows<E, true>(key, K, g0, r0, r1, b0, b1, range, out);
-        else rows<E, false>(key, K, g0, r0, r1, b0, b1, range, out);
+        if (aligned) rows<E, true>(key, K, g0, r0, r1, b0, b1, range, p0 / bits, out);
+        else rows<E, false>(key, K, g0, r0, r1, b0, b1, range, p0 / bits, out);
     }
 }
 
@@ -190,8 +222,8 @@ FILL_ENTRY(fill_u32, uint32_t, __launch_bounds__(THREADS, 5))
 FILL_ENTRY(fill_u64, uint64_t, __launch_bounds__(THREADS, 5))
 FILL_ENTRY(fill_f32, float, __launch_bounds__(THREADS, 5))
 FILL_ENTRY(fill_f64, double, __launch_bounds__(THREADS, 5))
-FILL_ENTRY(fill_u32_below, below32, __launch_bounds__(THREADS))
-FILL_ENTRY(fill_u64_below, below64, __launch_bounds__(THREADS))
+FILL_ENTRY(fill_u32_below, below32_global, __launch_bounds__(THREADS))
+FILL_ENTRY(fill_u64_below, below64_global, __launch_bounds__(THREADS))
 
 /* A start at an odd draw needs a second chunk per thread and about 20 more registers, so it
  * has its own entry, _odd, as it has its own template instance in tandem.cuh. The host picks
