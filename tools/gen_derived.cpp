@@ -209,6 +209,44 @@ int main() {
         std::printf("        },\n");
     }
     std::printf("    };\n");
+
+    // Exponentials as in tandem-c's cross_exponential.h, which these values equal bit for bit:
+    // 64 draws from Rng(42) at aligned and unaligned starts.
+    const uint64_t EXP_STARTS[] = {0ull, 1ull, 77ull, 12345ull, 1ull << 30};
+    std::printf("\n    static final long[] EXP_START = {0L, 1L, 77L, 12345L, %" PRIu64 "L};\n", 1ull << 30);
+    std::printf("    static final double[][] EXP = {\n");
+    for (uint64_t start : EXP_STARTS) {
+        tandem::Rng g(42);
+        g.set_position(start);
+        std::printf("        {");
+        for (int i = 0; i < COUNT; i++)
+            std::printf("%s%.17g", i ? ", " : "", g.exponential());
+        std::printf("},\n");
+    }
+    std::printf("    };\n    static final float[][] EXPF = {\n");
+    for (uint64_t start : EXP_STARTS) {
+        tandem::Rng g(42);
+        g.set_position(start);
+        std::printf("        {");
+        for (int i = 0; i < COUNT; i++)
+            std::printf("%s%.9gf", i ? ", " : "", (double)g.exponentialf());
+        std::printf("},\n");
+    }
+    std::printf("    };\n    static final long[] EXP_END = {");
+    for (uint64_t start : EXP_STARTS) {
+        tandem::Rng g(42);
+        g.set_position(start);
+        for (int i = 0; i < COUNT; i++) g.exponential();
+        std::printf("%" PRIu64 "L%s", g.position(), start == EXP_STARTS[4] ? "" : ", ");
+    }
+    std::printf("};\n    static final long[] EXPF_END = {");
+    for (uint64_t start : EXP_STARTS) {
+        tandem::Rng g(42);
+        g.set_position(start);
+        for (int i = 0; i < COUNT; i++) g.exponentialf();
+        std::printf("%" PRIu64 "L%s", g.position(), start == EXP_STARTS[4] ? "" : ", ");
+    }
+    std::printf("};\n");
     std::printf("}\n");
     return 0;
 }

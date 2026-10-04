@@ -14,11 +14,10 @@ final class Normals {
     private static final long SIGN64 = 0x8000000000000000L;
     private static final int SIGN32 = 0x80000000;
 
-    /** Writes the double pair to {@code out[o]} and {@code out[o + 1]}. */
-    static void pair(double a, double b, double[] out, int o) {
-        // 1 - a = mant 2^k with mant in [sqrt(1/2), sqrt 2), from the bits: adding the bits of
+    /** -2 ln x for x in (0, 1], the logarithm of the normals and the exponentials. */
+    private static double neg2Log(double x) {
+        // x = mant 2^k with mant in [sqrt(1/2), sqrt 2), from the bits: adding the bits of
         // sqrt(1/2) to the exponent field makes the mantissa rollover pick k.
-        double x = 1.0 - a;
         long ix = Double.doubleToRawLongBits(x) + 0x00095f6200000000L;
         double nk = (double) (1023 - (ix >>> 52));
         ix = (ix & 0x000fffffffffffffL) + 0x3fe6a09e00000000L;
@@ -27,8 +26,32 @@ final class Normals {
         double p = Math.fma(zz, Math.fma(zz, Math.fma(zz, Math.fma(zz, Math.fma(zz, Math.fma(zz,
                 0.08312363319426472, 0.09070001083303751), 0.11111433317907482),
                 0.14285712049336274), 0.2000000000566491), 0.33333333333331017), 1.0);
-        // -2 ln(1 - a) = 2 nk ln 2 - 4 s p, with ln 2 split so that nk * ln2_hi is exact.
-        double r = Math.sqrt(Math.fma(nk, 3.816429394731813e-10, Math.fma(nk, 1.3862943607382476, (s * -4.0) * p)));
+        // -2 ln x = 2 nk ln 2 - 4 s p, with ln 2 split so that nk * ln2_hi is exact.
+        return Math.fma(nk, 3.816429394731813e-10, Math.fma(nk, 1.3862943607382476, (s * -4.0) * p));
+    }
+
+    private static float neg2LogF(float x) {
+        int ix = Float.floatToRawIntBits(x) + 0x004afb0d;
+        float nk = (float) (127 - (ix >>> 23));
+        ix = (ix & 0x007fffff) + 0x3f3504f3;
+        float mant = Float.intBitsToFloat(ix);
+        float s = (mant - 1.0f) / (mant + 1.0f), zz = s * s;
+        float p = Math.fma(zz, Math.fma(zz, Math.fma(zz, 0.14275366f, 0.20000061f), 0.33333334f), 1.0f);
+        return Math.fma(nk, 2.857213530660374e-06f, Math.fma(nk, 1.38629150390625f, (s * -4.0f) * p));
+    }
+
+    /** {@code -ln(1 - u)}; the halving of {@code neg2Log} is exact. */
+    static double exponential(double u) {
+        return 0.5 * neg2Log(1.0 - u);
+    }
+
+    static float exponentialF(float u) {
+        return 0.5f * neg2LogF(1.0f - u);
+    }
+
+    /** Writes the double pair to {@code out[o]} and {@code out[o + 1]}. */
+    static void pair(double a, double b, double[] out, int o) {
+        double r = Math.sqrt(neg2Log(1.0 - a));
 
         // The nearest quarter turn q and the angle left over in [-pi/4, pi/4].
         long q = (long) (b * 4.0 + 0.5);
@@ -53,14 +76,7 @@ final class Normals {
 
     /** Writes the float pair to {@code out[o]} and {@code out[o + 1]}, all in float arithmetic. */
     static void pairF(float a, float b, float[] out, int o) {
-        float x = 1.0f - a;
-        int ix = Float.floatToRawIntBits(x) + 0x004afb0d;
-        float nk = (float) (127 - (ix >>> 23));
-        ix = (ix & 0x007fffff) + 0x3f3504f3;
-        float mant = Float.intBitsToFloat(ix);
-        float s = (mant - 1.0f) / (mant + 1.0f), zz = s * s;
-        float p = Math.fma(zz, Math.fma(zz, Math.fma(zz, 0.14275366f, 0.20000061f), 0.33333334f), 1.0f);
-        float r = (float) Math.sqrt(Math.fma(nk, 2.857213530660374e-06f, Math.fma(nk, 1.38629150390625f, (s * -4.0f) * p)));
+        float r = (float) Math.sqrt(neg2LogF(1.0f - a));
 
         int q = (int) (b * 4.0f + 0.5f);
         float f = Math.fma(-(float) q, 0.25f, b);

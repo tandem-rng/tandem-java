@@ -67,6 +67,11 @@ public final class Bench {
             for (int i = 0; i < DRAWS; i++) s += r.nextGaussian();
             sink = (long) s;
         }) / DRAWS;
+        double expo = best(() -> {
+            double s = 0;
+            for (int i = 0; i < DRAWS; i++) s += r.nextExponential();
+            sink = (long) s;
+        }) / DRAWS;
         double intLoop = best(() -> {
             for (int i = 0; i < ARRAY; i++) ints[i] = r.nextInt();
             sink = ints[ARRAY - 1];
@@ -75,7 +80,7 @@ public final class Bench {
             for (int i = 0; i < ARRAY; i++) doubles[i] = r.nextDouble();
             sink = (long) doubles[ARRAY - 1];
         });
-        String intFill = "-", doubleFill = "-";
+        String intFill = "-", doubleFill = "-", expFill = "-", expFillF = "-";
         if (r instanceof Tandem t) {
             intFill = gib(best(() -> {
                 t.fill(ints);
@@ -85,10 +90,19 @@ public final class Bench {
                 t.fill(doubles);
                 sink = (long) doubles[ARRAY - 1];
             }), 8);
+            expFill = gib(best(() -> {
+                t.fillExponential(doubles);
+                sink = (long) doubles[ARRAY - 1];
+            }), 8);
+            float[] floats = new float[ARRAY];
+            expFillF = gib(best(() -> {
+                t.fillExponential(floats);
+                sink = (long) floats[ARRAY - 1];
+            }), 4);
         }
         System.out.printf(
-                "| %s | %.2f | %.2f | %.2f | %.2f | %s | %s | %s | %s |%n",
-                name, nextInt, nextLong, nextDouble, gauss, gib(intLoop, 4), gib(doubleLoop, 8), intFill, doubleFill);
+                "| %s | %.2f | %.2f | %.2f | %.2f | %.2f | %s | %s | %s | %s | %s | %s |%n",
+                name, nextInt, nextLong, nextDouble, gauss, expo, gib(intLoop, 4), gib(doubleLoop, 8), intFill, doubleFill, expFill, expFillF);
     }
 
     private static String gib(double ns, int bytes) {
@@ -101,8 +115,8 @@ public final class Bench {
             return;
         }
         System.out.printf("JDK %s, %s %s%n%n", Runtime.version(), System.getProperty("os.name"), System.getProperty("os.arch"));
-        System.out.println("| generator | nextInt ns | nextLong ns | nextDouble ns | nextGaussian ns | int[] loop GiB/s | double[] loop GiB/s | int[] fill GiB/s | double[] fill GiB/s |");
-        System.out.println("|---|---|---|---|---|---|---|---|---|");
+        System.out.println("| generator | nextInt ns | nextLong ns | nextDouble ns | nextGaussian ns | nextExponential ns | int[] loop GiB/s | double[] loop GiB/s | int[] fill GiB/s | double[] fill GiB/s | exponential double[] fill GiB/s | exponential float[] fill GiB/s |");
+        System.out.println("|---|---|---|---|---|---|---|---|---|---|---|---|");
         String java = System.getProperty("java.home") + "/bin/java";
         for (String name : new String[] {"Tandem", "L64X128MixRandom", "SplittableRandom", "Random"}) {
             Process p = new ProcessBuilder(java, "-Xmx2g", "-cp", System.getProperty("java.class.path"), "tools/Bench.java", name)

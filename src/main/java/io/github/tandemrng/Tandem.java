@@ -29,7 +29,8 @@ import java.util.stream.Stream;
  * <p>This class implements {@link RandomGenerator.SplittableGenerator}, so it works with
  * {@code ints()}, {@code doubles()} and, {@code Collections.shuffle}. The
  * interface's default {@code nextGaussian} is overridden by the Box-Muller transform of
- * {@link #nextGaussian()}, which agrees with every other Tandem port.
+ * {@link #nextGaussian()}, which agrees with every other Tandem port. Likewise the default
+ * {@code nextExponential} is overridden by {@code -ln(1 - u)} of one double draw.
  * Every bounded integer draw uses Lemire's method, and the bounded {@code ints}, {@code longs}
  * and {@code doubles} streams are loops over the scalar bounded draws. Those replace the JDK's
  * default algorithms. The streams without bounds were already built on our draws.
@@ -1157,6 +1158,57 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
             }
         }
     }
+
+    /**
+     * Returns {@code -ln(1 - u)} for the next double draw {@code u}, a standard exponential. It
+     * uses only correctly rounded double arithmetic ({@link Math#fma}, add, multiply, divide), so
+     * the result is bit identical on every JVM and in tandem-c.
+     */
+    @Override
+    public double nextExponential() {
+        return Normals.exponential(nextDouble());
+    }
+
+    /** As {@link #nextExponential()} computed in float from the next float draw. */
+    public float nextExponentialFloat() {
+        return Normals.exponentialF(nextFloat());
+    }
+
+    /**
+     * Fills with standard exponentials: element {@code i} comes from uniform {@code i} of
+     * {@link #fill(double[])}, so a fill equals the sequence of {@link #nextExponential()}.
+     */
+    public void fillExponential(double[] a) {
+        fillExponential(a, 0, a.length);
+    }
+
+    /** As {@link #fillExponential(double[])} on {@code a[off, off + len)}. */
+    public void fillExponential(double[] a, int off, int len) {
+        Objects.checkFromIndexSize(off, len, a.length);
+        // Blocks keep the uniforms in cache for the transform.
+        for (int i = off, end = off + len; i < end; ) {
+            int m = Math.min(end - i, EXPONENTIAL_BLOCK);
+            fill(a, i, m);
+            for (int stop = i + m; i < stop; i++) a[i] = Normals.exponential(a[i]);
+        }
+    }
+
+    /** As {@link #fillExponential(double[])} in float, from uniforms of {@link #fill(float[])}. */
+    public void fillExponential(float[] a) {
+        fillExponential(a, 0, a.length);
+    }
+
+    /** As {@link #fillExponential(float[])} on {@code a[off, off + len)}. */
+    public void fillExponential(float[] a, int off, int len) {
+        Objects.checkFromIndexSize(off, len, a.length);
+        for (int i = off, end = off + len; i < end; ) {
+            int m = Math.min(end - i, EXPONENTIAL_BLOCK);
+            fill(a, i, m);
+            for (int stop = i + m; i < stop; i++) a[i] = Normals.exponentialF(a[i]);
+        }
+    }
+
+    private static final int EXPONENTIAL_BLOCK = 1024;
 
     // ---- Random access ----------------------------------------------------------------------
 
