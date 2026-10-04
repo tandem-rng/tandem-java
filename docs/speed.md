@@ -1,5 +1,7 @@
 # Speed
 
+`pixi run bench` produces the CPU figures, and `pixi run bench` in `cuda/` the GPU figures.
+
 ## CPU
 
 One thread, `pixi run bench`, Apple M4 Pro, JDK 25.0.2 (Azul Zulu). Minimum of seven runs after

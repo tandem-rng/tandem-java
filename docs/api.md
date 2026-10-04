@@ -1,5 +1,7 @@
 # API
 
+## Use
+
 ```java
 import io.github.tandemrng.Tandem;
 
@@ -15,7 +17,7 @@ Tandem[] kids = rng.fork(4);                   // from the current block, parent
 double y = rng.atDouble(1000);                 // element 1000 of the fill from here, no move
 ```
 
-## Summary
+## Reference
 
 - `Tandem`: key, position and chunk length `K`, with `Tandem(int[] key, long position, int k)`
   and `Tandem.seed(lo, hi, k)`. It is `Serializable` and not thread-safe.
@@ -32,14 +34,12 @@ double y = rng.atDouble(1000);                 // element 1000 of the fill from 
 - `java.util.random.RandomGenerator.SplittableGenerator`, so it drives `ints()`, `doubles()`,
   `splits()` and `Collections.shuffle`.
 - `TandemProvider` for Apache Commons RNG. Add `commons-rng-client-api` to use it.
-- Parallel use: element `i` of a fill is draw `i`, so any decomposition reproduces a serial run
-  (Appendix B of the [spec](https://github.com/tandem-rng/spec/blob/main/SPEC.md)).
 - GPU, `TandemCuda` in `cuda/` (see [GPU module](gpu.md)): `open()`, `fill`, `fillBelowU32`, `fillBelowU64`, `fillGaussian`
   on arrays, and `fillInts`, `fillLongs`, `fillFloats`, `fillDoubles`, `fillGaussianFloats`,
   `fillGaussianDoubles` into device memory. It needs compute capability 8.0 and driver 570.
   Run the JVM with `--enable-native-access=ALL-UNNAMED`.
 
-## Details
+### Details
 
 - A generator is its transport form (128-bit key, 64-bit bit position, chunk length `K`) plus
   a cache of one block of 32 rows of the stream. The cache never changes a drawn value and is
@@ -129,8 +129,10 @@ as an unsigned 64-bit seed. `belowU32` and `belowU64` take their bound as an uns
 a bound of 0 returns 0 and consumes one draw (specification Appendix A), so they reach ranges
 above `Integer.MAX_VALUE` and `Long.MAX_VALUE`.
 
-Parallel use: element `i` of a fill is draw `i`, so ranks, threads or devices that start at the
+## Parallel use
+
+Element `i` of a fill is draw `i`, so ranks, threads or devices that start at the
 position of their first element, or draw from `split(task)`, reproduce a serial run for any
-decomposition.
+decomposition (Appendix B of the [spec](https://github.com/tandem-rng/spec/blob/main/SPEC.md)).
 
 A generator is not thread-safe. Give each thread its own child from `split` or `fork`.
