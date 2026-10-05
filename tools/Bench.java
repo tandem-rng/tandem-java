@@ -11,8 +11,8 @@ import java.util.random.RandomGenerator;
  *
  * Each generator runs in its own JVM, so no call site sees more than one generator class and
  * the JIT inlines every draw as it would in an application. Times are the minimum of seven runs
- * after three warm-up runs: nanoseconds per draw for scalar draws over 2^25 draws, GiB/s for
- * arrays of 2^24 elements.
+ * after three warm-up runs, in GiB/s of output: 2^25 scalar draws, counted at 4 bytes for an int
+ * and 8 for the others, and arrays of 2^24 elements.
  */
 public final class Bench {
     private static final int DRAWS = 1 << 25;
@@ -53,27 +53,27 @@ public final class Bench {
             int s = 0;
             for (int i = 0; i < DRAWS; i++) s += r.nextInt();
             sink = s;
-        }) / DRAWS;
+        });
         double nextLong = best(() -> {
             long s = 0;
             for (int i = 0; i < DRAWS; i++) s += r.nextLong();
             sink = s;
-        }) / DRAWS;
+        });
         double nextDouble = best(() -> {
             double s = 0;
             for (int i = 0; i < DRAWS; i++) s += r.nextDouble();
             sink = (long) s;
-        }) / DRAWS;
+        });
         double gauss = best(() -> {
             double s = 0;
             for (int i = 0; i < DRAWS; i++) s += r.nextGaussian();
             sink = (long) s;
-        }) / DRAWS;
+        });
         double expo = best(() -> {
             double s = 0;
             for (int i = 0; i < DRAWS; i++) s += r.nextExponential();
             sink = (long) s;
-        }) / DRAWS;
+        });
         double intLoop = best(() -> {
             for (int i = 0; i < ARRAY; i++) ints[i] = r.nextInt();
             sink = ints[ARRAY - 1];
@@ -120,13 +120,19 @@ public final class Bench {
             }), 4);
         }
         System.out.printf(
-                "| %s | %.2f | %.2f | %.2f | %.2f | %.2f | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |%n",
-                name, nextInt, nextLong, nextDouble, gauss, expo, gib(intLoop, 4), gib(doubleLoop, 8), intFill, longFill, floatFill, doubleFill, expFill, expFillF,
+                "| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |%n",
+                name, gib(nextInt, DRAWS, 4), gib(nextLong, DRAWS, 8), gib(nextDouble, DRAWS, 8), gib(gauss, DRAWS, 8),
+                gib(expo, DRAWS, 8), gib(intLoop, 4), gib(doubleLoop, 8), intFill, longFill, floatFill, doubleFill, expFill, expFillF,
                 gaussFill, gaussFillF);
     }
 
     private static String gib(double ns, int bytes) {
-        return String.format("%.2f", (double) ARRAY * bytes / ns * 1e9 / (1L << 30));
+        return gib(ns, ARRAY, bytes);
+    }
+
+    /** GiB/s of output: count values of the given bytes in ns nanoseconds. */
+    private static String gib(double ns, long count, int bytes) {
+        return String.format("%.2f", (double) count * bytes / ns * 1e9 / (1L << 30));
     }
 
     public static void main(String[] args) throws Exception {
@@ -135,7 +141,7 @@ public final class Bench {
             return;
         }
         System.out.printf("JDK %s, %s %s%n%n", Runtime.version(), System.getProperty("os.name"), System.getProperty("os.arch"));
-        System.out.println("| generator | nextInt ns | nextLong ns | nextDouble ns | nextGaussian ns | nextExponential ns | int[] loop GiB/s | double[] loop GiB/s | int[] fill GiB/s | long[] fill GiB/s | float[] fill GiB/s | double[] fill GiB/s | exponential double[] fill GiB/s | exponential float[] fill GiB/s | normal double[] fill GiB/s | normal float[] fill GiB/s |");
+        System.out.println("| generator | nextInt GiB/s | nextLong GiB/s | nextDouble GiB/s | nextGaussian GiB/s | nextExponential GiB/s | int[] loop GiB/s | double[] loop GiB/s | int[] fill GiB/s | long[] fill GiB/s | float[] fill GiB/s | double[] fill GiB/s | exponential double[] fill GiB/s | exponential float[] fill GiB/s | normal double[] fill GiB/s | normal float[] fill GiB/s |");
         System.out.println("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
         String java = System.getProperty("java.home") + "/bin/java";
         String lib = System.getProperty("tandem.native");
