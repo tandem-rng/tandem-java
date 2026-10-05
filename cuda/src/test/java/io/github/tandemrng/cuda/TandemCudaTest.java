@@ -179,25 +179,80 @@ class TandemCudaTest {
                 }
     }
 
+    /** Fills of tandem-c's fixture rows, bit for bit, end positions included. */
+    private interface RowFill {
+        long[] run(int n, Tandem g);
+    }
+
+    private static void matchTandemC(String resource, String table, boolean f32, RowFill fill) throws IOException {
+        int[] key = CrossFixtures.key();
+        List<CrossFixtures.Row> rows = CrossFixtures.tandemC(resource, table);
+        assertTrue(rows.size() > 3, table);
+        for (CrossFixtures.Row row : rows) {
+            Tandem g = new Tandem(key, row.head(), 32);
+            long[] got = fill.run(row.values().length, g);
+            for (int i = 0; i < got.length; i++) {
+                String v = row.values()[i];
+                long want = f32 ? Float.floatToRawIntBits(Float.parseFloat(v)) : Double.doubleToRawLongBits(Double.parseDouble(v));
+                assertEquals(want, got[i], table + " start " + row.head() + ", element " + i);
+            }
+            assertEquals(row.count(), g.position(), table + " end position, start " + row.head());
+        }
+    }
+
+    private static long[] bits(double[] a) {
+        long[] b = new long[a.length];
+        for (int i = 0; i < a.length; i++) b[i] = Double.doubleToRawLongBits(a[i]);
+        return b;
+    }
+
+    private static long[] bits(float[] a) {
+        long[] b = new long[a.length];
+        for (int i = 0; i < a.length; i++) b[i] = Float.floatToRawIntBits(a[i]);
+        return b;
+    }
+
     @Test
-    void normalFillsMatchTandemCudaFixtures() throws IOException {
+    void normalFillsMatchFixtures() throws IOException {
+        matchTandemC("cross_normal.h", "CROSS_NORMAL", false, (n, g) -> { double[] x = new double[n]; gpu.fillGaussian(x, g); return bits(x); });
         CrossFixtures f = new CrossFixtures("cross_fill_normal.h");
         int[] key = CrossFixtures.key();
-        List<CrossFixtures.Row> normal64 = f.tables.get("CROSS_NORMAL64"), normal32 = f.tables.get("CROSS_NORMAL32");
-        assertTrue(normal64.size() > 2 && normal32.size() > 2);
-        for (CrossFixtures.Row row : normal64) {
-            double[] got = new double[(int) row.count()];
-            gpu.fillGaussian(got, new Tandem(key, row.head(), 32));
-            for (int i = 0; i < got.length; i++)
-                assertEquals(Double.doubleToRawLongBits(Double.parseDouble(row.values()[i])), Double.doubleToRawLongBits(got[i]),
-                        "pos " + row.head() + ", element " + i);
-        }
+        List<CrossFixtures.Row> normal32 = f.tables.get("CROSS_NORMAL32");
+        assertTrue(normal32.size() > 2);
         for (CrossFixtures.Row row : normal32) {
             float[] got = new float[(int) row.count()];
             gpu.fillGaussian(got, new Tandem(key, row.head(), 32));
             for (int i = 0; i < got.length; i++)
                 near(Float.parseFloat(row.values()[i]), got[i], "pos " + row.head() + ", element " + i);
         }
+    }
+
+    @Test
+    void exponentialFillsEqualCpuFills() {
+        Random r = new Random(4);
+        for (int k : new int[] {1, 8, 32})
+            for (long start : starts(k))
+                for (int n : LENGTHS) {
+                    Tandem g = new Tandem(key(r), start, k);
+                    String at = "K " + k + ", start " + start + ", n " + n;
+                    Tandem cpu = g.copy(), dev = g.copy();
+                    double[] wd = new double[n], gd = new double[n];
+                    cpu.fillExponential(wd);
+                    gpu.fillExponential(gd, dev);
+                    assertArrayEquals(bits(wd), bits(gd), "f64 " + at);
+                    assertEquals(cpu.position(), dev.position(), "f64 position " + at);
+                    float[] wf = new float[n], gf = new float[n];
+                    cpu.fillExponential(wf);
+                    gpu.fillExponential(gf, dev);
+                    assertArrayEquals(bits(wf), bits(gf), "f32 " + at);
+                    assertEquals(cpu.position(), dev.position(), "f32 position " + at);
+                }
+    }
+
+    @Test
+    void exponentialFillsMatchTandemCFixtures() throws IOException {
+        matchTandemC("cross_exponential.h", "CROSS_EXPONENTIAL", false, (n, g) -> { double[] x = new double[n]; gpu.fillExponential(x, g); return bits(x); });
+        matchTandemC("cross_exponential.h", "CROSS_EXPONENTIALF", true, (n, g) -> { float[] x = new float[n]; gpu.fillExponential(x, g); return bits(x); });
     }
 
     private static ByteBuffer dump(String name) throws IOException {
@@ -252,7 +307,9 @@ class TandemCudaTest {
                 new Case("u32 below", 4, (c, a, n, g) -> c.fillBelowU32(a, n, 0x80000001, g), (n, g) -> { int[] x = new int[n]; gpu.fillBelowU32(x, 0x80000001, g); return MemorySegment.ofArray(x); }),
                 new Case("u64 below", 8, (c, a, n, g) -> c.fillBelowU64(a, n, 1000, g), (n, g) -> { long[] x = new long[n]; gpu.fillBelowU64(x, 1000, g); return MemorySegment.ofArray(x); }),
                 new Case("f32 normal", 4, (c, a, n, g) -> c.fillGaussianFloats(a, n, g), (n, g) -> { float[] x = new float[n]; gpu.fillGaussian(x, g); return MemorySegment.ofArray(x); }),
-                new Case("f64 normal", 8, (c, a, n, g) -> c.fillGaussianDoubles(a, n, g), (n, g) -> { double[] x = new double[n]; gpu.fillGaussian(x, g); return MemorySegment.ofArray(x); }));
+                new Case("f64 normal", 8, (c, a, n, g) -> c.fillGaussianDoubles(a, n, g), (n, g) -> { double[] x = new double[n]; gpu.fillGaussian(x, g); return MemorySegment.ofArray(x); }),
+                new Case("f32 exponential", 4, (c, a, n, g) -> c.fillExponentialFloats(a, n, g), (n, g) -> { float[] x = new float[n]; gpu.fillExponential(x, g); return MemorySegment.ofArray(x); }),
+                new Case("f64 exponential", 8, (c, a, n, g) -> c.fillExponentialDoubles(a, n, g), (n, g) -> { double[] x = new double[n]; gpu.fillExponential(x, g); return MemorySegment.ofArray(x); }));
         int n = 100003;
         Tandem start = new Tandem(new int[] {5, 6, 7, 8}, 4161, 32);
         for (Case c : cases) {

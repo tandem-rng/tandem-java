@@ -42,9 +42,11 @@ samples against Exp(1). `TandemTest` covers child keys, forks, serialization and
 final position at chunk lengths 1, 2, 4, 8, 32 and 65536 and at starts and lengths that cut words,
 blocks, rows and groups. It compares the bounded fills with the CPU fills at ranges that reject
 often, rarely and never, and the normal fills with the CPU fills at every start slot, double
-normals bit for bit at lengths that take the fused kernel and the two-kernel path. It checks the
-bounded and normal fixtures of `tandem-cuda` (`cross_fill_below.h`, `cross_fill_normal.h`, copied
-into the test resources), the stream dumps of the core tests, and the device fills against the
+normals bit for bit at lengths that take the fused kernel and the two-kernel path at every start
+modulo 4 draws, which covers the octet stores. It compares both exponential fills with the CPU
+fills bit for bit. It checks the bounded and float normal fixtures of `tandem-cuda`
+(`cross_fill_below.h`, `cross_fill_normal.h`) and the double normal and exponential fixtures of
+`tandem-c` (`cross_normal.h`, `cross_exponential.h`) bit for bit with end positions, the stream dumps of the core tests, and the device fills against the
 array fills. `NoDriverTest` checks the error without a driver.
 
 ## Fixtures
@@ -52,8 +54,9 @@ array fills. `NoDriverTest` checks the error without a driver.
 `Vectors.java` is generated from the spec repository's `vectors.json` by `tools/gen_vectors.py`.
 The stream dumps in `src/test/resources/data` are byte-identical copies of the dumps in
 `tandem-c`. `tools/gen_derived.cpp` generates `Derived.java` from the `tandem-cuda` core.
-`cross_fill_below.h` and `cross_fill_normal.h` of `tandem-cuda` are copied into the test
-resources. `tools/gen_zig_tables.py` generates `ZigTables.java` from the spec's
+`cross_fill_below.h` and `cross_fill_normal.h` of `tandem-cuda`, and `cross_normal.h` and
+`cross_exponential.h` of `tandem-c` at commit `121db59`, are copied into the GPU test resources by
+`cuda/tools/build_ptx.sh`. `tools/gen_zig_tables.py` generates `ZigTables.java` from the spec's
 `tables/normal_f64_zig1024.json`.
 
 ## CI

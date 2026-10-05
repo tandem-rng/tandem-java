@@ -1,9 +1,11 @@
 #!/bin/sh
-# Rebuilds the committed PTX and test fixtures from the pinned tandem-cuda commit. Needs nvcc
-# 12.8 and clang 19: `pixi run -e nvcc ptx` in cuda/. TANDEM_CUDA may name a local checkout
-# that contains the commit, else the script clones it into target/.
+# Rebuilds the committed PTX and test fixtures from the pinned tandem-cuda and tandem-c commits.
+# Needs nvcc 12.8 and clang 19: `pixi run -e nvcc ptx` in cuda/. TANDEM_CUDA and TANDEM_C may
+# name local checkouts that contain the commits, else the script clones them into target/.
 set -eu
-TANDEM_CUDA_COMMIT=0ff5f1895ce936d92d3dd17f5f92d7d8b319fb37
+TANDEM_CUDA_COMMIT=bab987067206ccdd68a55b25408c878998d56822
+# The normal and exponential fixtures of the reference, tandem-c.
+TANDEM_C_COMMIT=121db5902d6136c7e5258970c0160121af3ab1d0
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 repo=${TANDEM_CUDA:-$here/target/tandem-cuda}
@@ -14,6 +16,10 @@ rm -rf "$src"
 mkdir -p "$src"
 git -C "$repo" archive "$TANDEM_CUDA_COMMIT" tandem.cuh include tests/cross_fill_below.h tests/cross_fill_normal.h |
     tar -x -C "$src"
+c=${TANDEM_C:-$here/target/tandem-c}
+[ -d "$c/.git" ] || git clone -q https://github.com/tandem-rng/tandem-c "$c"
+git -C "$c" cat-file -e "$TANDEM_C_COMMIT^{commit}" 2>/dev/null || git -C "$c" fetch -q origin
+git -C "$c" archive "$TANDEM_C_COMMIT" tests/cross_normal.h tests/cross_exponential.h | tar -x -C "$src"
 
 # conda activation prepends its own -ccbin, which nvcc would warn about.
 export NVCC_PREPEND_FLAGS=
@@ -36,4 +42,5 @@ awk '/^\t\/\/ \.globl\t_Z/ && !/fill_normal64_/ { skip = 1 } !skip { print } ski
 ptxas -arch=sm_80 "$out/tandem_fills_sm80.ptx" -o /dev/null
 
 mkdir -p "$here/src/test/resources/cross"
-cp "$src/tests/cross_fill_below.h" "$src/tests/cross_fill_normal.h" "$here/src/test/resources/cross/"
+cp "$src/tests/cross_fill_below.h" "$src/tests/cross_fill_normal.h" "$src/tests/cross_normal.h" \
+    "$src/tests/cross_exponential.h" "$here/src/test/resources/cross/"

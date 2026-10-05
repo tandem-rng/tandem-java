@@ -34,9 +34,10 @@ double y = rng.atDouble(1000);                 // element 1000 of the fill from 
 - `java.util.random.RandomGenerator.SplittableGenerator`, so it drives `ints()`, `doubles()`,
   `splits()` and `Collections.shuffle`.
 - `TandemProvider` for Apache Commons RNG. Add `commons-rng-client-api` to use it.
-- GPU, `TandemCuda` in `cuda/` (see [GPU module](gpu.md)): `open()`, `fill`, `fillBelowU32`, `fillBelowU64`, `fillGaussian`
-  on arrays, and `fillInts`, `fillLongs`, `fillFloats`, `fillDoubles`, `fillGaussianFloats`,
-  `fillGaussianDoubles` into device memory. It needs compute capability 8.0 and driver 570.
+- GPU, `TandemCuda` in `cuda/` (see [GPU module](gpu.md)): `open()`, `fill`, `fillBelowU32`, `fillBelowU64`, `fillGaussian`,
+  `fillExponential` on arrays, and `fillInts`, `fillLongs`, `fillFloats`, `fillDoubles`,
+  `fillGaussianFloats`, `fillGaussianDoubles`, `fillExponentialFloats`, `fillExponentialDoubles`
+  into device memory. It needs compute capability 8.0 and driver 570.
   Run the JVM with `--enable-native-access=ALL-UNNAMED`.
 
 ### Details

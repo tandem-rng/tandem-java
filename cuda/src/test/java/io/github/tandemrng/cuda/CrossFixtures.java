@@ -11,9 +11,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * The tables of tandem-cuda's tests/cross_fill_below.h and cross_fill_normal.h, copied verbatim
- * into the test resources by tools/build_ptx.sh. A row is a range or a position, a count, and
- * the values as written. For the _AT tables the row is the start position, the range and the values.
+ * The tables of tandem-cuda's tests/cross_fill_below.h and cross_fill_normal.h, and of tandem-c's
+ * tests/cross_normal.h and cross_exponential.h, copied verbatim into the test resources by
+ * tools/build_ptx.sh. A row is a range or a position, a count, and the values as written. For the _AT tables the row is the start position, the range and the values.
  */
 final class CrossFixtures {
     record Row(long head, long count, String[] values) {}
@@ -25,12 +25,34 @@ final class CrossFixtures {
 
     final Map<String, List<Row>> tables = new LinkedHashMap<>();
 
-    CrossFixtures(String resource) throws IOException {
-        String text;
+    // tandem-c's tables name an anonymous struct, and each row ends with the end position.
+    private static final Pattern C_TABLE = Pattern.compile("\\} (\\w+)\\[\\] = \\{\\n(.*?)\\n\\};", Pattern.DOTALL);
+    private static final Pattern C_ROW = Pattern.compile("\\{(\\w+),\\s*\\{([^}]*)\\},\\s*(\\w+)\\}");
+
+    private static String text(String resource) throws IOException {
         try (InputStream in = CrossFixtures.class.getResourceAsStream("/cross/" + resource)) {
-            text = new String(in.readAllBytes(), StandardCharsets.US_ASCII);
+            return new String(in.readAllBytes(), StandardCharsets.US_ASCII);
         }
-        Matcher t = TABLE.matcher(text);
+    }
+
+    /**
+     * A table of tandem-c's tests/cross_normal.h or cross_exponential.h, fills from the key of
+     * seed 42 at K = 32. A row's head is the start position and its count the end position.
+     */
+    static List<Row> tandemC(String resource, String table) throws IOException {
+        Matcher t = C_TABLE.matcher(text(resource));
+        while (t.find()) {
+            if (!t.group(1).equals(table)) continue;
+            List<Row> rows = new ArrayList<>();
+            Matcher r = C_ROW.matcher(t.group(2));
+            while (r.find()) rows.add(new Row(integer(r.group(1)), integer(r.group(3)), r.group(2).split(",\\s*")));
+            return rows;
+        }
+        throw new IllegalStateException("no table " + table + " in " + resource);
+    }
+
+    CrossFixtures(String resource) throws IOException {
+        Matcher t = TABLE.matcher(text(resource));
         while (t.find()) {
             List<Row> rows = new ArrayList<>();
             Matcher r = (t.group(1).endsWith("_AT") ? ROW_AT : ROW).matcher(t.group(2));
@@ -42,11 +64,7 @@ final class CrossFixtures {
 
     /** The key line, {@code {0x...u, ...}}. */
     static int[] key() throws IOException {
-        String text;
-        try (InputStream in = CrossFixtures.class.getResourceAsStream("/cross/cross_fill_below.h")) {
-            text = new String(in.readAllBytes(), StandardCharsets.US_ASCII);
-        }
-        Matcher m = Pattern.compile("CROSS_FILL_KEY\\[4\\] = \\{([^}]*)\\}").matcher(text);
+        Matcher m = Pattern.compile("CROSS_FILL_KEY\\[4\\] = \\{([^}]*)\\}").matcher(text("cross_fill_below.h"));
         if (!m.find()) throw new IllegalStateException("no key in cross_fill_below.h");
         String[] w = m.group(1).split(",\\s*");
         int[] key = new int[4];

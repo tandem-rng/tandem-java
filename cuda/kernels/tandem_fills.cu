@@ -174,14 +174,24 @@ FILL_ENTRY(fill_f32, float, __launch_bounds__(THREADS, 5))
 FILL_ENTRY(fill_f64, double, __launch_bounds__(THREADS, 5))
 FILL_ENTRY(fill_u32_below, below32_fill, __launch_bounds__(THREADS))
 FILL_ENTRY(fill_u64_below, below64_fill, __launch_bounds__(THREADS))
+FILL_ENTRY(fill_exponential_f32, exp_f32, __launch_bounds__(THREADS))
+FILL_ENTRY(fill_exponential_f64, exp_f64, __launch_bounds__(THREADS))
 
-/* The Float64 normal fill is tandem.cuh's own: the fused kernel for short fills, else the table
- * pass, which queues its misses in a list, and the kernel that continues them. Their mangled
- * entries stay in the PTX, and TandemCuda plans their launches as fill_normal_f64_impl does. */
+/* The Float64 normal fill is tandem.cuh's own: the fused kernel for short fills, else a table
+ * pass, which queues its misses in a list, and the kernel that continues them. The table pass
+ * stores in octets when the output's 32-byte sectors start 8 or 16 bytes into the stream's rows.
+ * Their mangled entries stay in the PTX, and TandemCuda plans their launches as
+ * fill_normal_f64_impl does. */
 template __global__ void tandem::detail::fill_normal64_kernel<false>(
     uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint64_t, uint64_t, uint64_t, double *,
     tandem::detail::NormalMiss *, unsigned long long *, uint64_t);
 template __global__ void tandem::detail::fill_normal64_kernel<true>(
+    uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint64_t, uint64_t, uint64_t, double *,
+    tandem::detail::NormalMiss *, unsigned long long *, uint64_t);
+template __global__ void tandem::detail::fill_normal64_octets<0>(
+    uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint64_t, uint64_t, uint64_t, double *,
+    tandem::detail::NormalMiss *, unsigned long long *, uint64_t);
+template __global__ void tandem::detail::fill_normal64_octets<1>(
     uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint64_t, uint64_t, uint64_t, double *,
     tandem::detail::NormalMiss *, unsigned long long *, uint64_t);
 

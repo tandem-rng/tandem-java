@@ -70,7 +70,7 @@ jobs:
       - run: mvn -B -q install -DskipTests
       - run: mvn -B -f cuda/pom.xml verify
   ptx:
-    name: PTX and fixtures match the pinned tandem-cuda
+    name: PTX and fixtures match the pinned tandem-cuda and tandem-c
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

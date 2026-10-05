@@ -16,8 +16,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * Tandem fills on a CUDA GPU, bound to the CUDA driver through the Foreign Function and Memory
  * API. Every fill takes its key, position and chunk length from a {@link Tandem}, writes the
  * values of the generator's CPU fill of the same name, and moves the generator's position as
- * that fill does. The uniform, bounded integer and double normal fills are equal to the CPU
- * fills bit for bit. The float normals agree to 16 ulps plus 3e-6, because the GPU computes
+ * that fill does. The uniform, bounded integer, double normal and exponential fills are equal to
+ * the CPU fills bit for bit. The float normals agree to 16 ulps plus 3e-6, because the GPU computes
  * the transcendentals differently.
  *
  * <p>A non-empty fill moves the position through {@link Tandem#setPosition}, which drops the
@@ -43,7 +43,8 @@ public final class TandemCuda implements AutoCloseable {
     enum Kind {
         U32("fill_u32", 32, 4), U64("fill_u64", 64, 8), F32("fill_f32", 32, 4), F64("fill_f64", 64, 8),
         U32_BELOW("fill_u32_below", 32, 4), U64_BELOW("fill_u64_below", 64, 8),
-        NORMAL_F32("fill_normal_f32", 32, 4), NORMAL_F64(null, 64, 8);
+        NORMAL_F32("fill_normal_f32", 32, 4), NORMAL_F64(null, 64, 8),
+        EXP_F32("fill_exponential_f32", 32, 4), EXP_F64("fill_exponential_f64", 64, 8);
 
         final String entry;
         final int bits, bytes;
@@ -65,6 +66,8 @@ public final class TandemCuda implements AutoCloseable {
                 case U64_BELOW -> g.fillBelowU64(new long[0], 0, 0, range);
                 case NORMAL_F32 -> g.fillGaussian(new float[0]);
                 case NORMAL_F64 -> g.fillGaussian(new double[0]);
+                case EXP_F32 -> g.fillExponential(new float[0]);
+                case EXP_F64 -> g.fillExponential(new double[0]);
             }
         }
     }
@@ -75,8 +78,11 @@ public final class TandemCuda implements AutoCloseable {
     private final MemorySegment[] functions = new MemorySegment[Kind.values().length];
     /** The float normal entry for a start at an odd draw. */
     private final MemorySegment normal32Odd;
-    /** tandem.cuh's double normal kernels: fused, the table pass for even and odd starts, and the misses. */
-    private final MemorySegment normal64Fused, normal64Even, normal64Odd, normal64Misses;
+    /**
+     * tandem.cuh's double normal kernels: fused, the table pass for even and odd starts and in
+     * octets for each start parity, and the misses.
+     */
+    private final MemorySegment normal64Fused, normal64Even, normal64Odd, normal64Octets0, normal64Octets1, normal64Misses;
     private final AtomicBoolean closed = new AtomicBoolean();
     /** One hold for the open handle and one per live device allocation. */
     private final AtomicLong holds = new AtomicLong(1);
@@ -104,6 +110,8 @@ public final class TandemCuda implements AutoCloseable {
             normal64Fused = cu.function(m, "_ZN6tandem6detail19fill_normal64_fusedEjjjjjmmmPd");
             normal64Even = cu.function(m, "_ZN6tandem6detail20fill_normal64_kernelILb0EEEvjjjjjmmmPdPNS0_10NormalMissEPym");
             normal64Odd = cu.function(m, "_ZN6tandem6detail20fill_normal64_kernelILb1EEEvjjjjjmmmPdPNS0_10NormalMissEPym");
+            normal64Octets0 = cu.function(m, "_ZN6tandem6detail20fill_normal64_octetsILj0EEEvjjjjjmmmPdPNS0_10NormalMissEPym");
+            normal64Octets1 = cu.function(m, "_ZN6tandem6detail20fill_normal64_octetsILj1EEEvjjjjjmmmPdPNS0_10NormalMissEPym");
             normal64Misses = cu.function(m, "_ZN6tandem6detail20fill_normal64_missesEjjjjjmmmmPKNS0_10NormalMissEPKymPd");
         } catch (RuntimeException e) {
             if (m != null) cu.unloadModule(m);
@@ -174,6 +182,16 @@ public final class TandemCuda implements AutoCloseable {
         toHost(Kind.NORMAL_F64, MemorySegment.ofArray(dst), dst.length, 0, rng);
     }
 
+    /** As {@link Tandem#fillExponential(float[])}. */
+    public void fillExponential(float[] dst, Tandem rng) {
+        toHost(Kind.EXP_F32, MemorySegment.ofArray(dst), dst.length, 0, rng);
+    }
+
+    /** As {@link Tandem#fillExponential(double[])}. */
+    public void fillExponential(double[] dst, Tandem rng) {
+        toHost(Kind.EXP_F64, MemorySegment.ofArray(dst), dst.length, 0, rng);
+    }
+
     // ---- Device fills -----------------------------------------------------------------------
 
     /** As {@link #fill(int[], Tandem)} into {@code n} ints of new device memory. */
@@ -214,6 +232,16 @@ public final class TandemCuda implements AutoCloseable {
     /** As {@link #fillGaussian(double[], Tandem)} into {@code n} doubles of new device memory. */
     public MemorySegment fillGaussianDoubles(Arena arena, long n, Tandem rng) {
         return onDevice(Kind.NORMAL_F64, arena, n, 0, rng);
+    }
+
+    /** As {@link #fillExponential(float[], Tandem)} into {@code n} floats of new device memory. */
+    public MemorySegment fillExponentialFloats(Arena arena, long n, Tandem rng) {
+        return onDevice(Kind.EXP_F32, arena, n, 0, rng);
+    }
+
+    /** As {@link #fillExponential(double[], Tandem)} into {@code n} doubles of new device memory. */
+    public MemorySegment fillExponentialDoubles(Arena arena, long n, Tandem rng) {
+        return onDevice(Kind.EXP_F64, arena, n, 0, rng);
     }
 
     /** Releases the primary context once the device memory of every fill is freed as well. */
@@ -348,8 +376,9 @@ public final class TandemCuda implements AutoCloseable {
      * The double normal fill of n elements from draw d0, planned as {@code fill_normal_f64_impl}
      * of tandem.cuh: the table pass writes the fast path's values and lists the misses, 0.43 % of
      * the elements, in stream-ordered memory with room for n / 128, and the second kernel
-     * continues each listed miss. The table pass pairs elements across lanes when the output is
-     * 8 bytes off the stream's 16-byte blocks.
+     * continues each listed miss. The table pass stores in octets when the output's 32-byte
+     * sectors start 8 or 16 bytes into the stream's rows, else it pairs elements across lanes
+     * when the output is 8 bytes off the stream's 16-byte blocks.
      */
     private void launchNormal64(long k0, long k1, long k2, long k3, int k, int shift, long d0, long n, long out) {
         long ba = d0 >>> 1, bb = (d0 + n - 1) >>> 1;
@@ -362,8 +391,10 @@ public final class TandemCuda implements AutoCloseable {
         }
         long count = scratch, list = scratch + 16;
         cu.zeroAsync(count, 2);
-        boolean shifted = ((out - 8 * d0) & 15) != 0;
-        run(shifted ? normal64Odd : normal64Even, blocks, 0, k0, k1, k2, k3, k, g0, d0, n, out, list, count, cap);
+        long off = (out - 8 * d0) & 31;
+        MemorySegment table = (out & 31) == 0 && (off == 8 || off == 16) ? ((d0 & 1) != 0 ? normal64Octets1 : normal64Octets0)
+                : (off & 15) == 0 ? normal64Even : normal64Odd;
+        run(table, blocks, 0, k0, k1, k2, k3, k, g0, d0, n, out, list, count, cap);
         run(normal64Misses, (n / 200 + THREADS - 1) / THREADS, 0, k0, k1, k2, k3, k, g0, chunks, d0, n, list, count, cap, out);
         cu.freeAsync(scratch);
     }
