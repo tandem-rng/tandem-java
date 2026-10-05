@@ -229,17 +229,37 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         s[7] = h3;
     }
 
-    /** F on s = (o0..o3, h0..h3), in place. */
-    static void f(int[] s) {
-        for (int r = 0; r < 8; r++) {
-            t(s);
-            s[0] ^= RC[r];
-            for (int w = 0; w < 4; w++) {
-                int x = s[w];
-                s[w] = s[4 + w];
-                s[4 + w] = x;
+    /**
+     * F on s = (o0..o3, h0..h3), in place, followed by {@code steps} steps T. The state stays
+     * in locals: every miss of a double normal runs F at least twice.
+     */
+    static void f(int[] s, long steps) {
+        int o0 = s[0], o1 = s[1], o2 = s[2], o3 = s[3], h0 = s[4], h1 = s[5], h2 = s[6], h3 = s[7];
+        for (long r = -8; r < steps; r++) {
+            long p0 = (o0 & MASK32) * ((h0 | 1) & MASK32);
+            long p1 = (o2 & MASK32) * ((h1 | 1) & MASK32);
+            int n0 = o1 ^ (int) (p1 >>> 32) ^ (int) p1;
+            int n1 = Integer.rotateLeft((int) p1, 16) ^ h2;
+            int n2 = o3 ^ (int) (p0 >>> 32) ^ (int) p0;
+            int n3 = Integer.rotateLeft((int) p0, 16) ^ h3;
+            h0 ^= Integer.rotateLeft(h1, 7);
+            h1 ^= Integer.rotateLeft(h2, 13);
+            h2 ^= Integer.rotateLeft(h3, 22);
+            h3 ^= Integer.rotateLeft(h0, 3);
+            h0 = (h0 + CLOCK_WEYL) ^ n0;
+            if (r < 0) {
+                // A round of F ends with o0 ^= RC and swaps the halves.
+                o0 = h0; o1 = h1; o2 = h2; o3 = h3;
+                h0 = n0 ^ RC[(int) r + 8]; h1 = n1; h2 = n2; h3 = n3;
+            } else {
+                o0 = n0; o1 = n1; o2 = n2; o3 = n3;
             }
         }
+        s[0] = o0; s[1] = o1; s[2] = o2; s[3] = o3; s[4] = h0; s[5] = h1; s[6] = h2; s[7] = h3;
+    }
+
+    static void f(int[] s) {
+        f(s, 0);
     }
 
     static void fKeyed(int k0,int k1, int k2, int k3, long counter, int domain, int aux, int[] s) {
@@ -254,30 +274,25 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         f(s);
     }
 
-    /** F on the eight chunks 8g .. 8g + 7 into the lane state arrays, four lanes at a time. */
+    // The lane loops below run two lanes side by side. One lane alone waits on the latency of
+    // its multiply-xor chain. Four lanes need 32 state words and spill out of the AArch64
+    // registers, so C2 code runs half its instructions on the stack. The row loops end on
+    // b != end, which C2 does not count: it unrolls counted loops of many xors twice, and the
+    // unrolled int writer spilled the lane state.
+
+    /** F on the eight chunks 8g .. 8g + 7 into the lane state arrays. */
     private void seedLanes(int[] o, int[] h, long g) {
-        for (int l = 0; l < 8; l += 4) {
-            long ctra = 8L * g + l + 0;
-            int o0a = (int) ctra, o1a = (int) (ctra >>> 32), o2a = DOMAIN_STREAM, o3a = AUX_STREAM;
+        for (int l = 0; l < 8; l += 2) {
+            long ctr = 8L * g + l;
+            int o0a = (int) ctr, o1a = (int) (ctr >>> 32), o2a = DOMAIN_STREAM, o3a = AUX_STREAM;
             int h0a = k0, h1a = k1, h2a = k2, h3a = k3;
-            long ctrb = 8L * g + l + 1;
-            int o0b = (int) ctrb, o1b = (int) (ctrb >>> 32), o2b = DOMAIN_STREAM, o3b = AUX_STREAM;
+            int o0b = (int) (ctr + 1), o1b = (int) ((ctr + 1) >>> 32), o2b = DOMAIN_STREAM, o3b = AUX_STREAM;
             int h0b = k0, h1b = k1, h2b = k2, h3b = k3;
-            long ctrc = 8L * g + l + 2;
-            int o0c = (int) ctrc, o1c = (int) (ctrc >>> 32), o2c = DOMAIN_STREAM, o3c = AUX_STREAM;
-            int h0c = k0, h1c = k1, h2c = k2, h3c = k3;
-            long ctrd = 8L * g + l + 3;
-            int o0d = (int) ctrd, o1d = (int) (ctrd >>> 32), o2d = DOMAIN_STREAM, o3d = AUX_STREAM;
-            int h0d = k0, h1d = k1, h2d = k2, h3d = k3;
             for (int r = 0; r < 8; r++) {
                 long p0a = (o0a & MASK32) * ((h0a | 1) & MASK32);
                 long p1a = (o2a & MASK32) * ((h1a | 1) & MASK32);
                 long p0b = (o0b & MASK32) * ((h0b | 1) & MASK32);
                 long p1b = (o2b & MASK32) * ((h1b | 1) & MASK32);
-                long p0c = (o0c & MASK32) * ((h0c | 1) & MASK32);
-                long p1c = (o2c & MASK32) * ((h1c | 1) & MASK32);
-                long p0d = (o0d & MASK32) * ((h0d | 1) & MASK32);
-                long p1d = (o2d & MASK32) * ((h1d | 1) & MASK32);
                 int n0a = o1a ^ (int) (p1a >>> 32) ^ (int) p1a;
                 int n1a = Integer.rotateLeft((int) p1a, 16) ^ h2a;
                 int n2a = o3a ^ (int) (p0a >>> 32) ^ (int) p0a;
@@ -286,51 +301,26 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
                 int n1b = Integer.rotateLeft((int) p1b, 16) ^ h2b;
                 int n2b = o3b ^ (int) (p0b >>> 32) ^ (int) p0b;
                 int n3b = Integer.rotateLeft((int) p0b, 16) ^ h3b;
-                int n0c = o1c ^ (int) (p1c >>> 32) ^ (int) p1c;
-                int n1c = Integer.rotateLeft((int) p1c, 16) ^ h2c;
-                int n2c = o3c ^ (int) (p0c >>> 32) ^ (int) p0c;
-                int n3c = Integer.rotateLeft((int) p0c, 16) ^ h3c;
-                int n0d = o1d ^ (int) (p1d >>> 32) ^ (int) p1d;
-                int n1d = Integer.rotateLeft((int) p1d, 16) ^ h2d;
-                int n2d = o3d ^ (int) (p0d >>> 32) ^ (int) p0d;
-                int n3d = Integer.rotateLeft((int) p0d, 16) ^ h3d;
                 h0a ^= Integer.rotateLeft(h1a, 7);
                 h1a ^= Integer.rotateLeft(h2a, 13);
                 h2a ^= Integer.rotateLeft(h3a, 22);
                 h3a ^= Integer.rotateLeft(h0a, 3);
                 h0a = (h0a + CLOCK_WEYL) ^ n0a;
-                o0a = h0a; o1a = h1a; o2a = h2a; o3a = h3a;
-                h0a = n0a ^ RC[r]; h1a = n1a; h2a = n2a; h3a = n3a;
                 h0b ^= Integer.rotateLeft(h1b, 7);
                 h1b ^= Integer.rotateLeft(h2b, 13);
                 h2b ^= Integer.rotateLeft(h3b, 22);
                 h3b ^= Integer.rotateLeft(h0b, 3);
                 h0b = (h0b + CLOCK_WEYL) ^ n0b;
+                // The round ends with o0 ^= RC[r] and swaps the halves.
+                o0a = h0a; o1a = h1a; o2a = h2a; o3a = h3a;
+                h0a = n0a ^ RC[r]; h1a = n1a; h2a = n2a; h3a = n3a;
                 o0b = h0b; o1b = h1b; o2b = h2b; o3b = h3b;
                 h0b = n0b ^ RC[r]; h1b = n1b; h2b = n2b; h3b = n3b;
-                h0c ^= Integer.rotateLeft(h1c, 7);
-                h1c ^= Integer.rotateLeft(h2c, 13);
-                h2c ^= Integer.rotateLeft(h3c, 22);
-                h3c ^= Integer.rotateLeft(h0c, 3);
-                h0c = (h0c + CLOCK_WEYL) ^ n0c;
-                o0c = h0c; o1c = h1c; o2c = h2c; o3c = h3c;
-                h0c = n0c ^ RC[r]; h1c = n1c; h2c = n2c; h3c = n3c;
-                h0d ^= Integer.rotateLeft(h1d, 7);
-                h1d ^= Integer.rotateLeft(h2d, 13);
-                h2d ^= Integer.rotateLeft(h3d, 22);
-                h3d ^= Integer.rotateLeft(h0d, 3);
-                h0d = (h0d + CLOCK_WEYL) ^ n0d;
-                o0d = h0d; o1d = h1d; o2d = h2d; o3d = h3d;
-                h0d = n0d ^ RC[r]; h1d = n1d; h2d = n2d; h3d = n3d;
             }
-            o[4 * (l + 0)] = o0a; o[4 * (l + 0) + 1] = o1a; o[4 * (l + 0) + 2] = o2a; o[4 * (l + 0) + 3] = o3a;
-            h[4 * (l + 0)] = h0a; h[4 * (l + 0) + 1] = h1a; h[4 * (l + 0) + 2] = h2a; h[4 * (l + 0) + 3] = h3a;
-            o[4 * (l + 1)] = o0b; o[4 * (l + 1) + 1] = o1b; o[4 * (l + 1) + 2] = o2b; o[4 * (l + 1) + 3] = o3b;
-            h[4 * (l + 1)] = h0b; h[4 * (l + 1) + 1] = h1b; h[4 * (l + 1) + 2] = h2b; h[4 * (l + 1) + 3] = h3b;
-            o[4 * (l + 2)] = o0c; o[4 * (l + 2) + 1] = o1c; o[4 * (l + 2) + 2] = o2c; o[4 * (l + 2) + 3] = o3c;
-            h[4 * (l + 2)] = h0c; h[4 * (l + 2) + 1] = h1c; h[4 * (l + 2) + 2] = h2c; h[4 * (l + 2) + 3] = h3c;
-            o[4 * (l + 3)] = o0d; o[4 * (l + 3) + 1] = o1d; o[4 * (l + 3) + 2] = o2d; o[4 * (l + 3) + 3] = o3d;
-            h[4 * (l + 3)] = h0d; h[4 * (l + 3) + 1] = h1d; h[4 * (l + 3) + 2] = h2d; h[4 * (l + 3) + 3] = h3d;
+            o[4 * l] = o0a; o[4 * l + 1] = o1a; o[4 * l + 2] = o2a; o[4 * l + 3] = o3a;
+            h[4 * l] = h0a; h[4 * l + 1] = h1a; h[4 * l + 2] = h2a; h[4 * l + 3] = h3a;
+            o[4 * l + 4] = o0b; o[4 * l + 5] = o1b; o[4 * l + 6] = o2b; o[4 * l + 7] = o3b;
+            h[4 * l + 4] = h0b; h[4 * l + 5] = h1b; h[4 * l + 6] = h2b; h[4 * l + 7] = h3b;
         }
     }
 
@@ -339,26 +329,16 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
      * stream order, two words per long: row j, lane l at {@code 16 j + 2 l} and the next long.
      */
     private static void generate(int[] o, int[] h, long[] buf, int off, int rows) {
-        // Four independent lanes run side by side: one lane alone waits on the latency of its
-        // multiply-xor chain, four keep the multipliers busy.
-        for (int l = 0; l < 8; l += 4) {
-            int o0a = o[4 * (l + 0)], o1a = o[4 * (l + 0) + 1], o2a = o[4 * (l + 0) + 2], o3a = o[4 * (l + 0) + 3];
-            int h0a = h[4 * (l + 0)], h1a = h[4 * (l + 0) + 1], h2a = h[4 * (l + 0) + 2], h3a = h[4 * (l + 0) + 3];
-            int o0b = o[4 * (l + 1)], o1b = o[4 * (l + 1) + 1], o2b = o[4 * (l + 1) + 2], o3b = o[4 * (l + 1) + 3];
-            int h0b = h[4 * (l + 1)], h1b = h[4 * (l + 1) + 1], h2b = h[4 * (l + 1) + 2], h3b = h[4 * (l + 1) + 3];
-            int o0c = o[4 * (l + 2)], o1c = o[4 * (l + 2) + 1], o2c = o[4 * (l + 2) + 2], o3c = o[4 * (l + 2) + 3];
-            int h0c = h[4 * (l + 2)], h1c = h[4 * (l + 2) + 1], h2c = h[4 * (l + 2) + 2], h3c = h[4 * (l + 2) + 3];
-            int o0d = o[4 * (l + 3)], o1d = o[4 * (l + 3) + 1], o2d = o[4 * (l + 3) + 2], o3d = o[4 * (l + 3) + 3];
-            int h0d = h[4 * (l + 3)], h1d = h[4 * (l + 3) + 1], h2d = h[4 * (l + 3) + 2], h3d = h[4 * (l + 3) + 3];
-            for (int j = 0, b = off + 2 * l; j < rows; j++, b += 16) {
+        for (int l = 0; l < 8; l += 2) {
+            int o0a = o[4 * l], o1a = o[4 * l + 1], o2a = o[4 * l + 2], o3a = o[4 * l + 3];
+            int h0a = h[4 * l], h1a = h[4 * l + 1], h2a = h[4 * l + 2], h3a = h[4 * l + 3];
+            int o0b = o[4 * l + 4], o1b = o[4 * l + 5], o2b = o[4 * l + 6], o3b = o[4 * l + 7];
+            int h0b = h[4 * l + 4], h1b = h[4 * l + 5], h2b = h[4 * l + 6], h3b = h[4 * l + 7];
+            for (int b = off + 2 * l, end = b + 16 * rows; b != end; b += 16) {
                 long p0a = (o0a & MASK32) * ((h0a | 1) & MASK32);
                 long p1a = (o2a & MASK32) * ((h1a | 1) & MASK32);
                 long p0b = (o0b & MASK32) * ((h0b | 1) & MASK32);
                 long p1b = (o2b & MASK32) * ((h1b | 1) & MASK32);
-                long p0c = (o0c & MASK32) * ((h0c | 1) & MASK32);
-                long p1c = (o2c & MASK32) * ((h1c | 1) & MASK32);
-                long p0d = (o0d & MASK32) * ((h0d | 1) & MASK32);
-                long p1d = (o2d & MASK32) * ((h1d | 1) & MASK32);
                 int n0a = o1a ^ (int) (p1a >>> 32) ^ (int) p1a;
                 int n1a = Integer.rotateLeft((int) p1a, 16) ^ h2a;
                 int n2a = o3a ^ (int) (p0a >>> 32) ^ (int) p0a;
@@ -367,115 +347,42 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
                 int n1b = Integer.rotateLeft((int) p1b, 16) ^ h2b;
                 int n2b = o3b ^ (int) (p0b >>> 32) ^ (int) p0b;
                 int n3b = Integer.rotateLeft((int) p0b, 16) ^ h3b;
-                int n0c = o1c ^ (int) (p1c >>> 32) ^ (int) p1c;
-                int n1c = Integer.rotateLeft((int) p1c, 16) ^ h2c;
-                int n2c = o3c ^ (int) (p0c >>> 32) ^ (int) p0c;
-                int n3c = Integer.rotateLeft((int) p0c, 16) ^ h3c;
-                int n0d = o1d ^ (int) (p1d >>> 32) ^ (int) p1d;
-                int n1d = Integer.rotateLeft((int) p1d, 16) ^ h2d;
-                int n2d = o3d ^ (int) (p0d >>> 32) ^ (int) p0d;
-                int n3d = Integer.rotateLeft((int) p0d, 16) ^ h3d;
                 h0a ^= Integer.rotateLeft(h1a, 7);
                 h1a ^= Integer.rotateLeft(h2a, 13);
                 h2a ^= Integer.rotateLeft(h3a, 22);
                 h3a ^= Integer.rotateLeft(h0a, 3);
                 h0a = (h0a + CLOCK_WEYL) ^ n0a;
-                o0a = n0a;
-                o1a = n1a;
-                o2a = n2a;
-                o3a = n3a;
+                o0a = n0a; o1a = n1a; o2a = n2a; o3a = n3a;
                 h0b ^= Integer.rotateLeft(h1b, 7);
                 h1b ^= Integer.rotateLeft(h2b, 13);
                 h2b ^= Integer.rotateLeft(h3b, 22);
                 h3b ^= Integer.rotateLeft(h0b, 3);
                 h0b = (h0b + CLOCK_WEYL) ^ n0b;
-                o0b = n0b;
-                o1b = n1b;
-                o2b = n2b;
-                o3b = n3b;
-                h0c ^= Integer.rotateLeft(h1c, 7);
-                h1c ^= Integer.rotateLeft(h2c, 13);
-                h2c ^= Integer.rotateLeft(h3c, 22);
-                h3c ^= Integer.rotateLeft(h0c, 3);
-                h0c = (h0c + CLOCK_WEYL) ^ n0c;
-                o0c = n0c;
-                o1c = n1c;
-                o2c = n2c;
-                o3c = n3c;
-                h0d ^= Integer.rotateLeft(h1d, 7);
-                h1d ^= Integer.rotateLeft(h2d, 13);
-                h2d ^= Integer.rotateLeft(h3d, 22);
-                h3d ^= Integer.rotateLeft(h0d, 3);
-                h0d = (h0d + CLOCK_WEYL) ^ n0d;
-                o0d = n0d;
-                o1d = n1d;
-                o2d = n2d;
-                o3d = n3d;
-                buf[b + 0] = (o0a & MASK32) | ((long) o1a << 32);
+                o0b = n0b; o1b = n1b; o2b = n2b; o3b = n3b;
+                buf[b] = (o0a & MASK32) | ((long) o1a << 32);
                 buf[b + 1] = (o2a & MASK32) | ((long) o3a << 32);
                 buf[b + 2] = (o0b & MASK32) | ((long) o1b << 32);
                 buf[b + 3] = (o2b & MASK32) | ((long) o3b << 32);
-                buf[b + 4] = (o0c & MASK32) | ((long) o1c << 32);
-                buf[b + 5] = (o2c & MASK32) | ((long) o3c << 32);
-                buf[b + 6] = (o0d & MASK32) | ((long) o1d << 32);
-                buf[b + 7] = (o2d & MASK32) | ((long) o3d << 32);
             }
-            o[4 * (l + 0)] = o0a;
-            o[4 * (l + 0) + 1] = o1a;
-            o[4 * (l + 0) + 2] = o2a;
-            o[4 * (l + 0) + 3] = o3a;
-            h[4 * (l + 0)] = h0a;
-            h[4 * (l + 0) + 1] = h1a;
-            h[4 * (l + 0) + 2] = h2a;
-            h[4 * (l + 0) + 3] = h3a;
-            o[4 * (l + 1)] = o0b;
-            o[4 * (l + 1) + 1] = o1b;
-            o[4 * (l + 1) + 2] = o2b;
-            o[4 * (l + 1) + 3] = o3b;
-            h[4 * (l + 1)] = h0b;
-            h[4 * (l + 1) + 1] = h1b;
-            h[4 * (l + 1) + 2] = h2b;
-            h[4 * (l + 1) + 3] = h3b;
-            o[4 * (l + 2)] = o0c;
-            o[4 * (l + 2) + 1] = o1c;
-            o[4 * (l + 2) + 2] = o2c;
-            o[4 * (l + 2) + 3] = o3c;
-            h[4 * (l + 2)] = h0c;
-            h[4 * (l + 2) + 1] = h1c;
-            h[4 * (l + 2) + 2] = h2c;
-            h[4 * (l + 2) + 3] = h3c;
-            o[4 * (l + 3)] = o0d;
-            o[4 * (l + 3) + 1] = o1d;
-            o[4 * (l + 3) + 2] = o2d;
-            o[4 * (l + 3) + 3] = o3d;
-            h[4 * (l + 3)] = h0d;
-            h[4 * (l + 3) + 1] = h1d;
-            h[4 * (l + 3) + 2] = h2d;
-            h[4 * (l + 3) + 3] = h3d;
+            o[4 * l] = o0a; o[4 * l + 1] = o1a; o[4 * l + 2] = o2a; o[4 * l + 3] = o3a;
+            h[4 * l] = h0a; h[4 * l + 1] = h1a; h[4 * l + 2] = h2a; h[4 * l + 3] = h3a;
+            o[4 * l + 4] = o0b; o[4 * l + 5] = o1b; o[4 * l + 6] = o2b; o[4 * l + 7] = o3b;
+            h[4 * l + 4] = h0b; h[4 * l + 5] = h1b; h[4 * l + 6] = h2b; h[4 * l + 7] = h3b;
         }
     }
 
+    /** As {@link #generate}, converting each long to a double as {@link #nextDouble()} does. */
     private static void generateDouble(int[] o, int[] h, double[] buf, int off, int rows) {
-        // Four independent lanes run side by side: one lane alone waits on the latency of its
-        // multiply-xor chain, four keep the multipliers busy.
-        for (int l = 0; l < 8; l += 4) {
-            int o0a = o[4 * (l + 0)], o1a = o[4 * (l + 0) + 1], o2a = o[4 * (l + 0) + 2], o3a = o[4 * (l + 0) + 3];
-            int h0a = h[4 * (l + 0)], h1a = h[4 * (l + 0) + 1], h2a = h[4 * (l + 0) + 2], h3a = h[4 * (l + 0) + 3];
-            int o0b = o[4 * (l + 1)], o1b = o[4 * (l + 1) + 1], o2b = o[4 * (l + 1) + 2], o3b = o[4 * (l + 1) + 3];
-            int h0b = h[4 * (l + 1)], h1b = h[4 * (l + 1) + 1], h2b = h[4 * (l + 1) + 2], h3b = h[4 * (l + 1) + 3];
-            int o0c = o[4 * (l + 2)], o1c = o[4 * (l + 2) + 1], o2c = o[4 * (l + 2) + 2], o3c = o[4 * (l + 2) + 3];
-            int h0c = h[4 * (l + 2)], h1c = h[4 * (l + 2) + 1], h2c = h[4 * (l + 2) + 2], h3c = h[4 * (l + 2) + 3];
-            int o0d = o[4 * (l + 3)], o1d = o[4 * (l + 3) + 1], o2d = o[4 * (l + 3) + 2], o3d = o[4 * (l + 3) + 3];
-            int h0d = h[4 * (l + 3)], h1d = h[4 * (l + 3) + 1], h2d = h[4 * (l + 3) + 2], h3d = h[4 * (l + 3) + 3];
-            for (int j = 0, b = off + 2 * l; j < rows; j++, b += 16) {
+        for (int l = 0; l < 8; l += 2) {
+            int o0a = o[4 * l], o1a = o[4 * l + 1], o2a = o[4 * l + 2], o3a = o[4 * l + 3];
+            int h0a = h[4 * l], h1a = h[4 * l + 1], h2a = h[4 * l + 2], h3a = h[4 * l + 3];
+            int o0b = o[4 * l + 4], o1b = o[4 * l + 5], o2b = o[4 * l + 6], o3b = o[4 * l + 7];
+            int h0b = h[4 * l + 4], h1b = h[4 * l + 5], h2b = h[4 * l + 6], h3b = h[4 * l + 7];
+            for (int b = off + 2 * l, end = b + 16 * rows; b != end; b += 16) {
                 long p0a = (o0a & MASK32) * ((h0a | 1) & MASK32);
                 long p1a = (o2a & MASK32) * ((h1a | 1) & MASK32);
                 long p0b = (o0b & MASK32) * ((h0b | 1) & MASK32);
                 long p1b = (o2b & MASK32) * ((h1b | 1) & MASK32);
-                long p0c = (o0c & MASK32) * ((h0c | 1) & MASK32);
-                long p1c = (o2c & MASK32) * ((h1c | 1) & MASK32);
-                long p0d = (o0d & MASK32) * ((h0d | 1) & MASK32);
-                long p1d = (o2d & MASK32) * ((h1d | 1) & MASK32);
                 int n0a = o1a ^ (int) (p1a >>> 32) ^ (int) p1a;
                 int n1a = Integer.rotateLeft((int) p1a, 16) ^ h2a;
                 int n2a = o3a ^ (int) (p0a >>> 32) ^ (int) p0a;
@@ -484,91 +391,75 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
                 int n1b = Integer.rotateLeft((int) p1b, 16) ^ h2b;
                 int n2b = o3b ^ (int) (p0b >>> 32) ^ (int) p0b;
                 int n3b = Integer.rotateLeft((int) p0b, 16) ^ h3b;
-                int n0c = o1c ^ (int) (p1c >>> 32) ^ (int) p1c;
-                int n1c = Integer.rotateLeft((int) p1c, 16) ^ h2c;
-                int n2c = o3c ^ (int) (p0c >>> 32) ^ (int) p0c;
-                int n3c = Integer.rotateLeft((int) p0c, 16) ^ h3c;
-                int n0d = o1d ^ (int) (p1d >>> 32) ^ (int) p1d;
-                int n1d = Integer.rotateLeft((int) p1d, 16) ^ h2d;
-                int n2d = o3d ^ (int) (p0d >>> 32) ^ (int) p0d;
-                int n3d = Integer.rotateLeft((int) p0d, 16) ^ h3d;
                 h0a ^= Integer.rotateLeft(h1a, 7);
                 h1a ^= Integer.rotateLeft(h2a, 13);
                 h2a ^= Integer.rotateLeft(h3a, 22);
                 h3a ^= Integer.rotateLeft(h0a, 3);
                 h0a = (h0a + CLOCK_WEYL) ^ n0a;
-                o0a = n0a;
-                o1a = n1a;
-                o2a = n2a;
-                o3a = n3a;
+                o0a = n0a; o1a = n1a; o2a = n2a; o3a = n3a;
                 h0b ^= Integer.rotateLeft(h1b, 7);
                 h1b ^= Integer.rotateLeft(h2b, 13);
                 h2b ^= Integer.rotateLeft(h3b, 22);
                 h3b ^= Integer.rotateLeft(h0b, 3);
                 h0b = (h0b + CLOCK_WEYL) ^ n0b;
-                o0b = n0b;
-                o1b = n1b;
-                o2b = n2b;
-                o3b = n3b;
-                h0c ^= Integer.rotateLeft(h1c, 7);
-                h1c ^= Integer.rotateLeft(h2c, 13);
-                h2c ^= Integer.rotateLeft(h3c, 22);
-                h3c ^= Integer.rotateLeft(h0c, 3);
-                h0c = (h0c + CLOCK_WEYL) ^ n0c;
-                o0c = n0c;
-                o1c = n1c;
-                o2c = n2c;
-                o3c = n3c;
-                h0d ^= Integer.rotateLeft(h1d, 7);
-                h1d ^= Integer.rotateLeft(h2d, 13);
-                h2d ^= Integer.rotateLeft(h3d, 22);
-                h3d ^= Integer.rotateLeft(h0d, 3);
-                h0d = (h0d + CLOCK_WEYL) ^ n0d;
-                o0d = n0d;
-                o1d = n1d;
-                o2d = n2d;
-                o3d = n3d;
-                buf[b + 0] = toDouble((o0a & MASK32) | ((long) o1a << 32));
-                buf[b + 1] = toDouble((o2a & MASK32) | ((long) o3a << 32));
-                buf[b + 2] = toDouble((o0b & MASK32) | ((long) o1b << 32));
-                buf[b + 3] = toDouble((o2b & MASK32) | ((long) o3b << 32));
-                buf[b + 4] = toDouble((o0c & MASK32) | ((long) o1c << 32));
-                buf[b + 5] = toDouble((o2c & MASK32) | ((long) o3c << 32));
-                buf[b + 6] = toDouble((o0d & MASK32) | ((long) o1d << 32));
-                buf[b + 7] = toDouble((o2d & MASK32) | ((long) o3d << 32));
+                o0b = n0b; o1b = n1b; o2b = n2b; o3b = n3b;
+                buf[b] = toDouble(o0a, o1a);
+                buf[b + 1] = toDouble(o2a, o3a);
+                buf[b + 2] = toDouble(o0b, o1b);
+                buf[b + 3] = toDouble(o2b, o3b);
             }
-            o[4 * (l + 0)] = o0a;
-            o[4 * (l + 0) + 1] = o1a;
-            o[4 * (l + 0) + 2] = o2a;
-            o[4 * (l + 0) + 3] = o3a;
-            h[4 * (l + 0)] = h0a;
-            h[4 * (l + 0) + 1] = h1a;
-            h[4 * (l + 0) + 2] = h2a;
-            h[4 * (l + 0) + 3] = h3a;
-            o[4 * (l + 1)] = o0b;
-            o[4 * (l + 1) + 1] = o1b;
-            o[4 * (l + 1) + 2] = o2b;
-            o[4 * (l + 1) + 3] = o3b;
-            h[4 * (l + 1)] = h0b;
-            h[4 * (l + 1) + 1] = h1b;
-            h[4 * (l + 1) + 2] = h2b;
-            h[4 * (l + 1) + 3] = h3b;
-            o[4 * (l + 2)] = o0c;
-            o[4 * (l + 2) + 1] = o1c;
-            o[4 * (l + 2) + 2] = o2c;
-            o[4 * (l + 2) + 3] = o3c;
-            h[4 * (l + 2)] = h0c;
-            h[4 * (l + 2) + 1] = h1c;
-            h[4 * (l + 2) + 2] = h2c;
-            h[4 * (l + 2) + 3] = h3c;
-            o[4 * (l + 3)] = o0d;
-            o[4 * (l + 3) + 1] = o1d;
-            o[4 * (l + 3) + 2] = o2d;
-            o[4 * (l + 3) + 3] = o3d;
-            h[4 * (l + 3)] = h0d;
-            h[4 * (l + 3) + 1] = h1d;
-            h[4 * (l + 3) + 2] = h2d;
-            h[4 * (l + 3) + 3] = h3d;
+            o[4 * l] = o0a; o[4 * l + 1] = o1a; o[4 * l + 2] = o2a; o[4 * l + 3] = o3a;
+            h[4 * l] = h0a; h[4 * l + 1] = h1a; h[4 * l + 2] = h2a; h[4 * l + 3] = h3a;
+            o[4 * l + 4] = o0b; o[4 * l + 5] = o1b; o[4 * l + 6] = o2b; o[4 * l + 7] = o3b;
+            h[4 * l + 4] = h0b; h[4 * l + 5] = h1b; h[4 * l + 6] = h2b; h[4 * l + 7] = h3b;
+        }
+    }
+
+    /** As {@link #generate}, one word per int: row j, lane l at {@code 32 j + 4 l} to {@code 32 j + 4 l + 3}. */
+    private static void generateInt(int[] o, int[] h, int[] buf, int off, int rows) {
+        for (int l = 0; l < 8; l += 2) {
+            int o0a = o[4 * l], o1a = o[4 * l + 1], o2a = o[4 * l + 2], o3a = o[4 * l + 3];
+            int h0a = h[4 * l], h1a = h[4 * l + 1], h2a = h[4 * l + 2], h3a = h[4 * l + 3];
+            int o0b = o[4 * l + 4], o1b = o[4 * l + 5], o2b = o[4 * l + 6], o3b = o[4 * l + 7];
+            int h0b = h[4 * l + 4], h1b = h[4 * l + 5], h2b = h[4 * l + 6], h3b = h[4 * l + 7];
+            for (int b = off + 4 * l, end = b + 32 * rows; b != end; b += 32) {
+                long p0a = (o0a & MASK32) * ((h0a | 1) & MASK32);
+                long p1a = (o2a & MASK32) * ((h1a | 1) & MASK32);
+                long p0b = (o0b & MASK32) * ((h0b | 1) & MASK32);
+                long p1b = (o2b & MASK32) * ((h1b | 1) & MASK32);
+                int n0a = o1a ^ (int) (p1a >>> 32) ^ (int) p1a;
+                int n1a = Integer.rotateLeft((int) p1a, 16) ^ h2a;
+                int n2a = o3a ^ (int) (p0a >>> 32) ^ (int) p0a;
+                int n3a = Integer.rotateLeft((int) p0a, 16) ^ h3a;
+                int n0b = o1b ^ (int) (p1b >>> 32) ^ (int) p1b;
+                int n1b = Integer.rotateLeft((int) p1b, 16) ^ h2b;
+                int n2b = o3b ^ (int) (p0b >>> 32) ^ (int) p0b;
+                int n3b = Integer.rotateLeft((int) p0b, 16) ^ h3b;
+                h0a ^= Integer.rotateLeft(h1a, 7);
+                h1a ^= Integer.rotateLeft(h2a, 13);
+                h2a ^= Integer.rotateLeft(h3a, 22);
+                h3a ^= Integer.rotateLeft(h0a, 3);
+                h0a = (h0a + CLOCK_WEYL) ^ n0a;
+                o0a = n0a; o1a = n1a; o2a = n2a; o3a = n3a;
+                buf[b] = n0a;
+                buf[b + 1] = n1a;
+                buf[b + 2] = n2a;
+                buf[b + 3] = n3a;
+                h0b ^= Integer.rotateLeft(h1b, 7);
+                h1b ^= Integer.rotateLeft(h2b, 13);
+                h2b ^= Integer.rotateLeft(h3b, 22);
+                h3b ^= Integer.rotateLeft(h0b, 3);
+                h0b = (h0b + CLOCK_WEYL) ^ n0b;
+                o0b = n0b; o1b = n1b; o2b = n2b; o3b = n3b;
+                buf[b + 4] = o0b;
+                buf[b + 5] = o1b;
+                buf[b + 6] = o2b;
+                buf[b + 7] = o3b;
+            }
+            o[4 * l] = o0a; o[4 * l + 1] = o1a; o[4 * l + 2] = o2a; o[4 * l + 3] = o3a;
+            h[4 * l] = h0a; h[4 * l + 1] = h1a; h[4 * l + 2] = h2a; h[4 * l + 3] = h3a;
+            o[4 * l + 4] = o0b; o[4 * l + 5] = o1b; o[4 * l + 6] = o2b; o[4 * l + 7] = o3b;
+            h[4 * l + 4] = h0b; h[4 * l + 5] = h1b; h[4 * l + 6] = h2b; h[4 * l + 7] = h3b;
         }
     }
 
@@ -639,12 +530,27 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
 
     /** The w bits at bit position p, aligned to w, for w up to 64, without touching the cache. */
     private long rawAt(long p, int w) {
+        return extract(laneAt(p), (int) (p >>> 5) & 3, (int) (p & 31), w);
+    }
+
+    /** The state of the lane whose row holds bit position p, after that row's step. */
+    private int[] laneAt(long p) {
         long r = p >>> 10;
         int shift = Integer.numberOfTrailingZeros(chunk);
-        int[] s = new int[8];
-        fKeyed(k0, k1, k2, k3, 8L * (r >>> shift) + ((p >>> 7) & 7), DOMAIN_STREAM, AUX_STREAM, s);
-        for (long j = r & (chunk - 1L); j >= 0; j--) t(s);
-        return extract(s, (int) (p >>> 5) & 3, (int) (p & 31), w);
+        long ctr = 8L * (r >>> shift) + ((p >>> 7) & 7);
+        int[] s = {(int) ctr, (int) (ctr >>> 32), DOMAIN_STREAM, AUX_STREAM, k0, k1, k2, k3};
+        f(s, (r & (chunk - 1L)) + 1);
+        return s;
+    }
+
+    /**
+     * Writes elements 2i and 2i + 1 of the {@code fill(long[])} that would start at position 0
+     * to {@code out}. Both come from one lane of one row, so they take one F.
+     */
+    void atLongPair(long i, long[] out) {
+        int[] s = laneAt(128 * i);
+        out[0] = extract(s, 0, 0, 64);
+        out[1] = extract(s, 2, 0, 64);
     }
 
     private static long extract(int[] x, int word, int bit, int w) {
@@ -752,6 +658,13 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
 
     private static double toDouble(long raw) {
         return (raw >>> 11) * 0x1p-53;
+    }
+
+    /** {@link #toDouble(long)} of the long with low word lo and high word hi. */
+    private static double toDouble(int lo, int hi) {
+        // Both terms and their sum are exact, and the work moves from the integer units, which
+        // the row step fills, to the floating-point units.
+        return Math.fma((double) (hi & MASK32), 0x1p-32, (lo >>> 11) * 0x1p-53);
     }
 
     private static float toFloat(int raw) {
@@ -1039,9 +952,14 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
 
     private static final long PURPOSE_NORMAL64 = 0x4e524d3634L;
 
-    /** The fallback of the double normal at global draw index g: {@code sub(0x4e524d3634).split(g)} of this key at position 0. */
+    /** The fallback of the double normal at global draw index g: {@code gaussianFallbacks().split(g)}. */
     Tandem gaussianFallback(long g) {
-        return new Tandem(k0, k1, k2, k3, 0L, chunk).sub(PURPOSE_NORMAL64).split(g);
+        return gaussianFallbacks().split(g);
+    }
+
+    /** {@code sub(0x4e524d3634)} of this key and chunk length at position 0, the parent of every fallback. */
+    Tandem gaussianFallbacks() {
+        return new Tandem(k0, k1, k2, k3, 0L, chunk).sub(PURPOSE_NORMAL64);
     }
 
     /**
@@ -1073,11 +991,13 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         Objects.checkFromIndexSize(off, len, a.length);
         long first = align(pos, 64) >>> 6;
         long[] r = new long[Math.min(len, GAUSSIAN_BLOCK)];
+        int[] miss = new int[r.length];
         if (len == 0) fill(r, 0, 0);
         for (int i = 0; i < len; ) {
             int m = Math.min(len - i, GAUSSIAN_BLOCK);
             fill(r, 0, m);
-            for (int j = 0; j < m; j++, i++) a[off + i] = Normals.gaussian(r[j], this, first + i);
+            Normals.gaussians(r, m, a, off + i, miss, this, first + i);
+            i += m;
         }
     }
 
@@ -1271,6 +1191,15 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         int i = off, end = off + len;
         for (; i < end && (p & 1023) != 0; i++, p += 32) a[i] = word(p);
         while (end - i >= 32) {
+            int br = Math.min(chunk, BLOCK_ROWS);
+            if ((p >>> 10 & (br - 1)) == 0 && end - i >= br << 5) {
+                Cache c = blockState(p >>> 10, br);
+                generateInt(c.o, c.h, a, i, br);
+                c.next += br;
+                i += br << 5;
+                p += (long) br << 10;
+                continue;
+            }
             int base = locate(p), rows = Math.min(cache.count - (base >> 4), (end - i) >> 5);
             long[] x = cache.buf;
             for (int k = 0, n = rows << 4; k < n; k++) {

@@ -57,19 +57,58 @@ final class Normals {
      * with the sign set, and takes no branch, because the sign is a coin flip.
      */
     static double gaussian(long r, Tandem keyed, long g) {
-        int i = (int) r & 1023;
+        int s = (int) r & 2047;
         long ra = r >>> 11;
-        double x = Double.longBitsToDouble(Double.doubleToRawLongBits(ra * ZigTables.W[i]) ^ ((r & 1024) << 53));
-        return ra < ZigTables.K[i] ? x : gaussianMiss(r, x, keyed.gaussianFallback(g));
+        double x = ra * Double.longBitsToDouble(ZIG[2 * s + 1]);
+        return ra < ZIG[2 * s] ? x : gaussianMiss(r, x, keyed.gaussianFallback(g));
+    }
+
+    /**
+     * Fills {@code a[off, off + n)} with the ziggurat normals of {@code r[0, n)}, whose global
+     * draw indices start at g. The first loop has no call, so C2 unrolls it, and only records
+     * the misses, which the second loop finishes.
+     */
+    static void gaussians(long[] r, int n, double[] a, int off, int[] miss, Tandem keyed, long g) {
+        long[] t = ZIG;
+        int misses = 0;
+        for (int j = 0; j < n; j++) {
+            long rj = r[j];
+            int s2 = (int) rj << 1 & 4094;
+            long ra = rj >>> 11;
+            a[off + j] = ra * Double.longBitsToDouble(t[s2 + 1]);
+            if (ra >= t[s2]) miss[misses++] = j;
+        }
+        Tandem fallbacks = misses > 0 ? keyed.gaussianFallbacks() : null;
+        for (int q = 0; q < misses; q++) {
+            int j = miss[q];
+            a[off + j] = gaussianMiss(r[j], a[off + j], fallbacks.split(g + j));
+        }
+    }
+
+    /**
+     * Entry 2s is the threshold K[s mod 1024] and entry 2s + 1 the bits of the width
+     * W[s mod 1024] with the sign of bit 10 of s, for the 11 low bits s of a draw. One table
+     * keeps both loads on one base address, and the signed width replaces the sign flip:
+     * {@code ra * -w} is {@code -(ra * w)} exactly, -0.0 for {@code ra = 0} as well.
+     */
+    private static final long[] ZIG = new long[4096];
+
+    static {
+        for (int s = 0; s < 2048; s++) {
+            double w = ZigTables.W[s & 1023];
+            ZIG[2 * s] = ZigTables.K[s & 1023];
+            ZIG[2 * s + 1] = Double.doubleToRawLongBits((s & 1024) != 0 ? -w : w);
+        }
     }
 
     /**
      * A miss continues on the draws of its own fallback generator: the tail beyond R by
      * Marsaglia's method, else the wedge test {@code ln y < -x^2 / 2}, else a new draw. Draw d
-     * of the fallback is its element d by random access, which computes one block: a miss takes
+     * of the fallback is its element d by random access, which computes one lane: a miss takes
      * one to three draws, and a scalar draw would generate the generator's whole block cache.
      */
-    private static double gaussianMiss(long r, double x, Tandem fallback) {
+    private static double gaussianMiss(long r, double x, Tandem g) {
+        Fallback fallback = new Fallback(g);
         double[] w = ZigTables.W, y = ZigTables.Y;
         long[] k = ZigTables.K;
         long d = 0;
@@ -78,20 +117,44 @@ final class Normals {
             if (i == 0) {
                 double a, b;
                 do {
-                    a = exponential(fallback.atDouble(d++)) / ZigTables.R;
-                    b = exponential(fallback.atDouble(d++));
+                    a = exponential(fallback.uniform(d++)) / ZigTables.R;
+                    b = exponential(fallback.uniform(d++));
                 } while (b + b < a * a);
                 double t = ZigTables.R + a;
                 return (r & 1024) != 0 ? -t : t;
             }
-            double h = y[i] + fallback.atDouble(d++) * (y[i + 1] - y[i]);
+            double h = y[i] + fallback.uniform(d++) * (y[i + 1] - y[i]);
             if (-0.5 * neg2Log(h) < -0.5 * (x * x)) return x;
-            r = fallback.atLong(d++);
+            r = fallback.draw(d++);
             i = (int) r & 1023;
             long ra = r >>> 11;
             x = ra * w[i];
             if ((r & 1024) != 0) x = -x;
             if (ra < k[i]) return x;
+        }
+    }
+
+    /** The draws of a fallback generator at position 0. Draws 2i and 2i + 1 share one F. */
+    private static final class Fallback {
+        private final Tandem g;
+        private final long[] pair = new long[2];
+        private long held = -1;
+
+        Fallback(Tandem g) {
+            this.g = g;
+        }
+
+        long draw(long d) {
+            if (d >>> 1 != held) {
+                held = d >>> 1;
+                g.atLongPair(held, pair);
+            }
+            return pair[(int) d & 1];
+        }
+
+        /** As {@code g.atDouble(d)}. */
+        double uniform(long d) {
+            return (draw(d) >>> 11) * 0x1p-53;
         }
     }
 
