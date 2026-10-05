@@ -2,7 +2,8 @@
  * tandem-cuda checkout. The bodies are the fill kernels of tandem.cuh. Here each entry takes
  * the key, the start position, K, n, the range where relevant and the output pointer, and
  * derives the plan the host launchers of tandem.cuh compute, so the Java side only sizes the
- * grid and picks the even or odd normal entry. The other template choices of tandem.cuh (tile
+ * grid and picks the even or odd float normal entry. The double normals are tandem.cuh's own
+ * kernels, see below. The other template choices of tandem.cuh (tile
  * or rows, aligned output) become branches on values that are uniform over the grid. Every
  * thread repeats the plan, so it shifts by log2 K where the host launchers divide by K.
  *
@@ -106,41 +107,6 @@ __device__ __forceinline__ void fill(uint4 *smem, uint32_t k0, uint32_t k1, uint
 }
 
 template <bool ODD>
-__device__ __forceinline__ void normal64(const uint32_t key[4], uint32_t K, uint64_t g0,
-                                         uint64_t ba, uint64_t bb, uint64_t n, double *out) {
-    uint64_t c = 8u * g0 + blockIdx.x * (uint64_t)blockDim.x + threadIdx.x;
-    uint64_t g = c >> 3, lane = c & 7u;
-    if (g * K * 8u > bb) return;
-    const bool vec = (reinterpret_cast<uintptr_t>(out) & 15u) == 0;
-    uint32_t o[4], h[4], po[4] = {0, 0, 0, 0}, ph[4] = {0, 0, 0, 0};
-    F_keyed(key, c, DOMAIN_STREAM, AUX_STREAM, o, h);
-    if (ODD) F_keyed(key, lane ? c - 1u : 8u * g + 7u, DOMAIN_STREAM, AUX_STREAM, po, ph);
-    for (uint32_t j = 0; j < K; j++) {
-        uint64_t beta = (g * K + j) * 8u + lane;
-        if (beta > bb) break;
-        T(o, h);
-        if (ODD && (lane || j)) T(po, ph);
-        if (beta < ba) continue;
-        uint32_t q[4];
-        const uint32_t *prev = po;
-        if (ODD && lane == 0 && j == 0) {
-            block(key, 8u * (g - 1u) + 7u, K - 1u, q);
-            prev = q;
-        }
-        uint64_t u = ODD ? prev[2] | ((uint64_t)prev[3] << 32) : o[0] | ((uint64_t)o[1] << 32);
-        uint64_t v = ODD ? o[0] | ((uint64_t)o[1] << 32) : o[2] | ((uint64_t)o[3] << 32);
-        Pair2<double> z = box_muller2(to_f64(u), to_f64(v));
-        uint64_t e = 2u * (beta - ba);
-        if (e + 1 < n) {
-            if (vec) *reinterpret_cast<double2 *>(out + e) = make_double2(z.z0, z.z1);
-            else { out[e] = z.z0; out[e + 1] = z.z1; }
-        } else {
-            out[e] = z.z0;
-        }
-    }
-}
-
-template <bool ODD>
 __device__ __forceinline__ void normal32(const uint32_t key[4], uint32_t K, uint64_t g0,
                                          uint64_t s0, uint64_t n, uint64_t np, uint64_t ba,
                                          uint64_t bb, float *out) {
@@ -209,17 +175,19 @@ FILL_ENTRY(fill_f64, double, __launch_bounds__(THREADS, 5))
 FILL_ENTRY(fill_u32_below, below32_fill, __launch_bounds__(THREADS))
 FILL_ENTRY(fill_u64_below, below64_fill, __launch_bounds__(THREADS))
 
-/* A start at an odd draw needs a second chunk per thread and about 20 more registers, so it
- * has its own entry, _odd, as it has its own template instance in tandem.cuh. The host picks
- * it by the parity of the first draw. */
-template <bool ODD>
-__device__ __forceinline__ void normal64_entry(uint32_t k0, uint32_t k1, uint32_t k2, uint32_t k3,
-                                               uint64_t pos, uint32_t K, uint64_t n, double *out) {
-    const uint32_t key[4] = {k0, k1, k2, k3};
-    uint64_t ba = (align_pos(pos, 64) >> 7) + (ODD ? 1u : 0u), bb = ba + (n + 1u) / 2u - 1u;
-    normal64<ODD>(key, K, (ba >> 3) >> (__ffs(K) - 1), ba, bb, n, out);
-}
+/* The Float64 normal fill is tandem.cuh's own: the fused kernel for short fills, else the table
+ * pass, which queues its misses in a list, and the kernel that continues them. Their mangled
+ * entries stay in the PTX, and TandemCuda plans their launches as fill_normal_f64_impl does. */
+template __global__ void tandem::detail::fill_normal64_kernel<false>(
+    uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint64_t, uint64_t, uint64_t, double *,
+    tandem::detail::NormalMiss *, unsigned long long *, uint64_t);
+template __global__ void tandem::detail::fill_normal64_kernel<true>(
+    uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint64_t, uint64_t, uint64_t, double *,
+    tandem::detail::NormalMiss *, unsigned long long *, uint64_t);
 
+/* A float start at an odd draw needs a second chunk per thread and about 20 more registers, so
+ * it has its own entry, _odd, as it has its own template instance in tandem.cuh. The host picks
+ * it by the parity of the first draw. */
 template <bool ODD>
 __device__ __forceinline__ void normal32_entry(uint32_t k0, uint32_t k1, uint32_t k2, uint32_t k3,
                                                uint64_t pos, uint32_t K, uint64_t n, float *out) {
@@ -236,7 +204,5 @@ __device__ __forceinline__ void normal32_entry(uint32_t k0, uint32_t k1, uint32_
         impl<odd>(k0, k1, k2, k3, pos, K, n, out);                                                 \
     }
 
-NORMAL_ENTRY(fill_normal_f64, normal64_entry, double, false)
-NORMAL_ENTRY(fill_normal_f64_odd, normal64_entry, double, true)
 NORMAL_ENTRY(fill_normal_f32, normal32_entry, float, false)
 NORMAL_ENTRY(fill_normal_f32_odd, normal32_entry, float, true)

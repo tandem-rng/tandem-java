@@ -3,11 +3,12 @@
 # 12.8 and clang 19: `pixi run -e nvcc ptx` in cuda/. TANDEM_CUDA may name a local checkout
 # that contains the commit, else the script clones it into target/.
 set -eu
-TANDEM_CUDA_COMMIT=5806e517c0948b32102cf8c1614f85b7bdbdf757
+TANDEM_CUDA_COMMIT=0ff5f1895ce936d92d3dd17f5f92d7d8b319fb37
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 repo=${TANDEM_CUDA:-$here/target/tandem-cuda}
 [ -d "$repo/.git" ] || git clone -q https://github.com/tandem-rng/tandem-cuda "$repo"
+git -C "$repo" cat-file -e "$TANDEM_CUDA_COMMIT^{commit}" 2>/dev/null || git -C "$repo" fetch -q origin
 src=$here/target/tandem-cuda-$TANDEM_CUDA_COMMIT
 rm -rf "$src"
 mkdir -p "$src"
@@ -24,8 +25,9 @@ nvcc -ptx -arch=sm_80 -std=c++20 -O3 -ccbin clang++ -I"$src" -I"$src/include" \
     -o "$src/all.ptx" "$here/kernels/tandem_fills.cu"
 # The host launchers of tandem.cuh instantiate its 42 template kernels, which would make the
 # driver's first JIT of the module take 2.5 s instead of 1 s. Our entries are extern "C", so
-# every mangled entry goes.
-awk '/^\t\/\/ \.globl\t_Z/ { skip = 1 } !skip { print } skip && /^}$/ { skip = 0 }' \
+# every mangled entry goes except the Float64 normal kernels of tandem.cuh, which TandemCuda
+# launches by their mangled names.
+awk '/^\t\/\/ \.globl\t_Z/ && !/fill_normal64_/ { skip = 1 } !skip { print } skip && /^}$/ { skip = 0 }' \
     "$src/all.ptx" > "$out/tandem_fills_sm80.ptx"
 ptxas -arch=sm_80 "$out/tandem_fills_sm80.ptx" -o /dev/null
 

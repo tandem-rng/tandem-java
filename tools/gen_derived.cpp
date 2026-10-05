@@ -6,6 +6,7 @@
 //
 // Each case starts from Rng(42) after one bit draw, which leaves the position unaligned.
 #include <cinttypes>
+#include <cmath>
 #include <cstdio>
 #include <initializer_list>
 
@@ -45,6 +46,27 @@ static uint64_t below64(const tandem::Rng &root, uint64_t range, uint64_t e) {
         }
     }
     return tandem::mulhi64(x, range);
+}
+
+// The double Box-Muller pair of two uniforms, which the float fixtures round to float: the float
+// core can differ by an ulp between compilers, this rounding is stable. It is the polynomial step
+// tandem-cuda had before the ziggurat, with explicit fused multiply-adds, so every platform
+// writes the same file.
+static tandem::Pair2<double> box_muller(double a, double b) {
+    double r = std::sqrt(tandem::detail::neg2_log_f64(1.0 - a));
+    int64_t q = (int64_t)(b * 4.0 + 0.5);
+    double f = std::fma(-(double)q, 0.25, b), th = f * 6.283185307179586, w = th * th;
+    double hs = std::fma(w, std::fma(w, std::fma(w, std::fma(w, std::fma(w, 1.5914650986900946e-10,
+                -2.5051097984389413e-08), 2.755731600073921e-06), -0.00019841269836630226),
+                0.008333333333330813), -0.16666666666666669);
+    double hc = std::fma(w, std::fma(w, std::fma(w, std::fma(w, std::fma(w, 2.0665708703855164e-09,
+                -2.7555858522576447e-07), 2.480158263811954e-05), -0.0013888888882156126),
+                0.04166666666663108), -0.4999999999999997);
+    double sn = th * std::fma(w, hs, 1.0), cs = std::fma(w, hc, 1.0);
+    double x = q & 1 ? sn : cs, y = q & 1 ? cs : sn;
+    if ((q + 1) & 2) x = -x;
+    if (q & 2) y = -y;
+    return {r * x, r * y};
 }
 
 int main() {
@@ -93,33 +115,30 @@ int main() {
         std::printf("%" PRIu64 "L%s", g.position(), n == RANGES64[4] ? "" : ", ");
     }
 
-    // log, cos and sin differ in the last place between libms. Fourteen digits keep the file
-    // identical on every platform, and the tests compare within a relative 1e-12. Element 2i of
-    // each array is the cos half of pair i and 2i + 1 the sin half.
+    // Double normals: the ziggurat, exact on every platform, so 17 digits pin the bits. 2 COUNT
+    // scalar draws, about one miss.
     tandem::Rng g(42);
     g.bit();
     std::printf("};\n\n    static final double[] NORMAL = {\n");
-    for (int i = 0; i < COUNT; i++) {
-        auto z = g.normal2();
-        std::printf("        %.14g,\n        %.14g,\n", z.z0, z.z1);
-    }
+    for (int i = 0; i < 2 * COUNT; i++)
+        std::printf("        %.17g,\n", g.normal());
     std::printf("    };\n    static final long NORMAL_END = %" PRIu64 "L;\n", g.position());
 
-    // Float normals agree across ports to a few ulps. The float core can differ by an ulp between
-    // compilers, so the fixtures take the double Box-Muller of the float uniforms, rounded to
-    // float, which is stable.
+    // Float normals agree across ports to a few ulps. Element 2i of the array is the cos half of
+    // pair i and 2i + 1 the sin half.
     tandem::Rng f(42);
     f.bit();
     std::printf("\n    static final float[] NORMALF = {\n");
     for (int i = 0; i < COUNT; i++) {
         float a = f.frand();
-        auto z = tandem::box_muller2((double)a, (double)f.frand());
+        auto z = box_muller((double)a, (double)f.frand());
         std::printf("        %.7gf,\n        %.7gf,\n", (double)(float)z.z0, (double)(float)z.z1);
     }
     std::printf("    };\n    static final long NORMALF_END = %" PRIu64 "L;\n", f.position());
 
-    // Normal fills of 33 elements from the key of seed 42, K = 32, as in tandem-cuda's
-    // cross_fill_normal.h: pair j is one step of uniforms 2j and 2j + 1 of the plain fill.
+    // Normal fills of 33 elements from the key of seed 42, K = 32. Double: element e is the
+    // ziggurat of UInt64 draw e, the sequence of normal() calls. Float: pair j is one step of
+    // uniforms 2j and 2j + 1 of the plain fill.
     tandem::Rng nroot(42, 0, 32);
     std::printf("\n    static final long[] FILLN_POS64 = {0L, 64L, 1000L};\n");
     std::printf("    static final double[][] FILLN64 = {\n");
@@ -127,11 +146,8 @@ int main() {
         tandem::Rng r = nroot;
         r.set_position(pos);
         std::printf("        {");
-        for (int j = 0; j < 17; j++) {
-            auto z = tandem::box_muller2(r.at_drand(2 * j), r.at_drand(2 * j + 1));
-            std::printf("%s%.14g", j ? ", " : "", z.z0);
-            if (2 * j + 1 < 33) std::printf(", %.14g", z.z1);
-        }
+        for (int e = 0; e < 33; e++)
+            std::printf("%s%.17g", e ? ", " : "", r.normal());
         std::printf("},\n");
     }
     std::printf("    };\n    static final long[] FILLN_POS32 = {0L, 32L, 64L, 96L, 1000L};\n");
@@ -141,7 +157,7 @@ int main() {
         r.set_position(pos);
         std::printf("        {");
         for (int j = 0; j < 17; j++) {
-            auto z = tandem::box_muller2((double)r.at_frand(2 * j), (double)r.at_frand(2 * j + 1));
+            auto z = box_muller((double)r.at_frand(2 * j), (double)r.at_frand(2 * j + 1));
             std::printf("%s%.7gf", j ? ", " : "", (double)(float)z.z0);
             if (2 * j + 1 < 33) std::printf(", %.7gf", (double)(float)z.z1);
         }

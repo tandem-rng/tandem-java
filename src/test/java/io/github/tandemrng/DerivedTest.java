@@ -96,11 +96,8 @@ class DerivedTest {
     @Test
     void normalsThroughTheInterface() {
         RandomGenerator g = start();
-        // Elements alternate the cosine half and the kept sine half.
-        for (int i = 0; i < Derived.NORMAL.length; i++) {
-            double z = g.nextGaussian();
-            assertTrue(Math.abs(z - Derived.NORMAL[i]) <= 1e-12 * Math.abs(Derived.NORMAL[i]), "normal " + i);
-        }
+        for (int i = 0; i < Derived.NORMAL.length; i++)
+            assertEquals(Double.doubleToRawLongBits(Derived.NORMAL[i]), Double.doubleToRawLongBits(g.nextGaussian()), "normal " + i);
         assertEquals(Derived.NORMAL_END, ((Tandem) g).position());
     }
 
@@ -187,8 +184,7 @@ class DerivedTest {
             double[] want = Derived.FILLN64[c], got = new double[want.length];
             Tandem g = new Tandem(Tandem.seed(42).keyLo(), Tandem.seed(42).keyHi(), Derived.FILLN_POS64[c], 32);
             g.fillGaussian(got);
-            for (int i = 0; i < want.length; i++)
-                assertTrue(Math.abs(got[i] - want[i]) <= 1e-12 * Math.abs(want[i]), "f64 pos " + c + " element " + i);
+            assertArrayEquals(want, got, "f64 pos " + c);
         }
         for (int c = 0; c < Derived.FILLN_POS32.length; c++) {
             float[] want = Derived.FILLN32[c], got = new float[want.length];

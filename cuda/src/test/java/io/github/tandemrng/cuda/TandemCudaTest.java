@@ -147,10 +147,6 @@ class TandemCudaTest {
         }
     }
 
-    private static void near(double want, double got, String what) {
-        assertTrue(Math.abs(got - want) <= 1e-12 * (1 + Math.abs(want)), what + ": want " + want + ", got " + got);
-    }
-
     /**
      * The float step takes its angle through __sincosf, whose absolute error of up to 2^-21.41 the
      * radius multiplies, and float radii reach 5.77. So the bound is 16 ulps plus 3e-6, not the
@@ -173,7 +169,7 @@ class TandemCudaTest {
                     double[] wd = new double[n], gd = new double[n];
                     cpu.fillGaussian(wd);
                     gpu.fillGaussian(gd, dev);
-                    for (int i = 0; i < n; i++) near(wd[i], gd[i], "f64 " + at + ", element " + i);
+                    assertArrayEquals(wd, gd, "f64 " + at);
                     assertEquals(cpu.position(), dev.position(), "f64 position " + at);
                     float[] wf = new float[n], gf = new float[n];
                     cpu.fillGaussian(wf);
@@ -193,7 +189,8 @@ class TandemCudaTest {
             double[] got = new double[(int) row.count()];
             gpu.fillGaussian(got, new Tandem(key, row.head(), 32));
             for (int i = 0; i < got.length; i++)
-                near(Double.parseDouble(row.values()[i]), got[i], "pos " + row.head() + ", element " + i);
+                assertEquals(Double.doubleToRawLongBits(Double.parseDouble(row.values()[i])), Double.doubleToRawLongBits(got[i]),
+                        "pos " + row.head() + ", element " + i);
         }
         for (CrossFixtures.Row row : normal32) {
             float[] got = new float[(int) row.count()];

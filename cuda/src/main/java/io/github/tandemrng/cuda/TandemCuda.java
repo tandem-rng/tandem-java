@@ -1,7 +1,6 @@
 package io.github.tandemrng.cuda;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
-import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
 import io.github.tandemrng.Tandem;
@@ -17,12 +16,12 @@ import java.util.concurrent.atomic.AtomicLong;
  * Tandem fills on a CUDA GPU, bound to the CUDA driver through the Foreign Function and Memory
  * API. Every fill takes its key, position and chunk length from a {@link Tandem}, writes the
  * values of the generator's CPU fill of the same name, and moves the generator's position as
- * that fill does. The uniform and bounded integer fills are equal to the CPU fills bit for bit.
- * The double normals agree to a relative 1e-12, the float normals to 16 ulps plus 3e-6, because
- * the GPU computes the transcendentals differently.
+ * that fill does. The uniform, bounded integer and double normal fills are equal to the CPU
+ * fills bit for bit. The float normals agree to 16 ulps plus 3e-6, because the GPU computes
+ * the transcendentals differently.
  *
  * <p>A non-empty fill moves the position through {@link Tandem#setPosition}, which drops the
- * kept normal halves of {@code nextGaussian} and needs an end position below 2^63.
+ * kept normal half of {@code nextGaussianFloat} and needs an end position below 2^63.
  *
  * <p>The array fills compute on the device and copy to the array. The device fills return
  * device memory that lives until its arena closes. Their segments have length 0, so Java code
@@ -37,11 +36,14 @@ public final class TandemCuda implements AutoCloseable {
     private static final int TILE_BYTES = 32 * 1024;
     private static final int CC_MAJOR = 75;
 
-    /** One kernel entry of tandem_fills.cu, with the stream width it draws. */
+    /**
+     * One fill, with its kernel entry of tandem_fills.cu and the stream width it draws. The
+     * double normals launch the kernels of tandem.cuh instead, see {@link #launchNormal64}.
+     */
     enum Kind {
         U32("fill_u32", 32, 4), U64("fill_u64", 64, 8), F32("fill_f32", 32, 4), F64("fill_f64", 64, 8),
         U32_BELOW("fill_u32_below", 32, 4), U64_BELOW("fill_u64_below", 64, 8),
-        NORMAL_F32("fill_normal_f32", 32, 4), NORMAL_F64("fill_normal_f64", 64, 8);
+        NORMAL_F32("fill_normal_f32", 32, 4), NORMAL_F64(null, 64, 8);
 
         final String entry;
         final int bits, bytes;
@@ -50,10 +52,6 @@ public final class TandemCuda implements AutoCloseable {
             this.entry = entry;
             this.bits = bits;
             this.bytes = bytes;
-        }
-
-        boolean normal() {
-            return this == NORMAL_F32 || this == NORMAL_F64;
         }
 
         /** The CPU fill of no elements, whose effect on the position the GPU fills copy. */
@@ -75,8 +73,10 @@ public final class TandemCuda implements AutoCloseable {
     private final int device;
     private final MemorySegment context, module;
     private final MemorySegment[] functions = new MemorySegment[Kind.values().length];
-    /** The normal entries for a start at an odd draw. */
-    private final MemorySegment[] oddFunctions = new MemorySegment[Kind.values().length];
+    /** The float normal entry for a start at an odd draw. */
+    private final MemorySegment normal32Odd;
+    /** tandem.cuh's double normal kernels: fused, the table pass for even and odd starts, and the misses. */
+    private final MemorySegment normal64Fused, normal64Even, normal64Odd, normal64Misses;
     private final AtomicBoolean closed = new AtomicBoolean();
     /** One hold for the open handle and one per live device allocation. */
     private final AtomicLong holds = new AtomicLong(1);
@@ -98,10 +98,13 @@ public final class TandemCuda implements AutoCloseable {
                 MemorySegment.copy(MemorySegment.ofArray(ptx), 0, image, 0, ptx.length);
                 m = cu.loadModule(image);
             }
-            for (Kind k : Kind.values()) {
-                functions[k.ordinal()] = cu.function(m, k.entry);
-                if (k.normal()) oddFunctions[k.ordinal()] = cu.function(m, k.entry + "_odd");
-            }
+            for (Kind k : Kind.values())
+                if (k.entry != null) functions[k.ordinal()] = cu.function(m, k.entry);
+            normal32Odd = cu.function(m, "fill_normal_f32_odd");
+            normal64Fused = cu.function(m, "_ZN6tandem6detail19fill_normal64_fusedEjjjjjmmmPd");
+            normal64Even = cu.function(m, "_ZN6tandem6detail20fill_normal64_kernelILb0EEEvjjjjjmmmPdPNS0_10NormalMissEPym");
+            normal64Odd = cu.function(m, "_ZN6tandem6detail20fill_normal64_kernelILb1EEEvjjjjjmmmPdPNS0_10NormalMissEPym");
+            normal64Misses = cu.function(m, "_ZN6tandem6detail20fill_normal64_missesEjjjjjmmmmPKNS0_10NormalMissEPKymPd");
         } catch (RuntimeException e) {
             if (m != null) cu.unloadModule(m);
             cu.releasePrimaryContext(device);
@@ -166,7 +169,7 @@ public final class TandemCuda implements AutoCloseable {
         toHost(Kind.NORMAL_F32, MemorySegment.ofArray(dst), dst.length, 0, rng);
     }
 
-    /** As {@link Tandem#fillGaussian(double[])}, to a relative 1e-12. */
+    /** As {@link Tandem#fillGaussian(double[])}. */
     public void fillGaussian(double[] dst, Tandem rng) {
         toHost(Kind.NORMAL_F64, MemorySegment.ofArray(dst), dst.length, 0, rng);
     }
@@ -254,9 +257,9 @@ public final class TandemCuda implements AutoCloseable {
         return (pos + kind.bits - 1) & -kind.bits;
     }
 
-    /** Draws a fill of n elements consumes: normals come in pairs. */
+    /** Draws a fill of n elements consumes: float normals come in pairs. */
     private static long draws(Kind kind, long n) {
-        return kind.normal() ? n + (n & 1) : n;
+        return kind == Kind.NORMAL_F32 ? n + (n & 1) : n;
     }
 
     /** The position after a fill of n > 0 elements, refused where the CPU fill or setPosition would refuse it. */
@@ -312,15 +315,19 @@ public final class TandemCuda implements AutoCloseable {
         if (closed.get()) throw new IllegalStateException("closed");
         int k = rng.chunkLength(), shift = Integer.numberOfTrailingZeros(k);
         long p0 = start(kind, rng.position()), draws = draws(kind, n);
+        int[] key = rng.key();
+        long k0 = key[0] & MASK32, k1 = key[1] & MASK32, k2 = key[2] & MASK32, k3 = key[3] & MASK32;
+        cu.setCurrent(context);
+        if (kind == Kind.NORMAL_F64) {
+            launchNormal64(k0, k1, k2, k3, k, shift, p0 >>> 6, n, out);
+            return;
+        }
         // The first and last group of 8 chunks the kernel walks, as the launchers of tandem.cuh plan them.
         long g0, g1;
-        boolean odd = kind.normal() && (p0 >>> (kind == Kind.NORMAL_F64 ? 6 : 5) & 1) != 0;
-        if (kind == Kind.NORMAL_F64) {
-            long ba = (p0 >>> 7) + (odd ? 1 : 0);
-            g0 = ba >>> 3 >>> shift;
-            g1 = (ba + draws / 2 - 1) >>> 3 >>> shift;
-        } else if (kind == Kind.NORMAL_F32) {
+        boolean odd = false;
+        if (kind == Kind.NORMAL_F32) {
             long s0 = p0 >>> 5;
+            odd = (s0 & 1) != 0;
             g0 = s0 >>> 5 >>> shift;
             g1 = (s0 + draws - 1) >>> 5 >>> shift;
         } else {
@@ -328,23 +335,54 @@ public final class TandemCuda implements AutoCloseable {
             g1 = (p0 + kind.bits * draws - 1) >>> 10 >>> shift;
         }
         long blocks = (g1 - g0 + THREADS / 8) / (THREADS / 8);
+        int shared = kind != Kind.NORMAL_F32 && k >= TILE_STEPS ? TILE_BYTES : 0;
+        MemorySegment f = odd ? normal32Odd : functions[kind.ordinal()];
+        if (kind == Kind.NORMAL_F32) run(f, blocks, 0, k0, k1, k2, k3, rng.position(), k, n, out);
+        else run(f, blocks, shared, k0, k1, k2, k3, rng.position(), k, n, range, out);
+    }
+
+    /** tandem.cuh's fused kernel continues each miss where it finds it, short fills take it. */
+    private static final long NORMAL_LIST_MIN = 1L << 16;
+
+    /**
+     * The double normal fill of n elements from draw d0, planned as {@code fill_normal_f64_impl}
+     * of tandem.cuh: the table pass writes the fast path's values and lists the misses, 0.43 % of
+     * the elements, in stream-ordered memory with room for n / 128, and the second kernel
+     * continues each listed miss. The table pass pairs elements across lanes when the output is
+     * 8 bytes off the stream's 16-byte blocks.
+     */
+    private void launchNormal64(long k0, long k1, long k2, long k3, int k, int shift, long d0, long n, long out) {
+        long ba = d0 >>> 1, bb = (d0 + n - 1) >>> 1;
+        long g0 = ba >>> 3 >>> shift, g1 = bb >>> 3 >>> shift, chunks = 8 * (g1 - g0 + 1);
+        long blocks = (chunks + THREADS - 1) / THREADS, cap = n / 128;
+        long scratch = n < NORMAL_LIST_MIN ? 0 : cu.allocAsync(16 + 16 * cap);
+        if (scratch == 0) {
+            run(normal64Fused, blocks, 0, k0, k1, k2, k3, k, g0, d0, n, out);
+            return;
+        }
+        long count = scratch, list = scratch + 16;
+        cu.zeroAsync(count, 2);
+        boolean shifted = ((out - 8 * d0) & 15) != 0;
+        run(shifted ? normal64Odd : normal64Even, blocks, 0, k0, k1, k2, k3, k, g0, d0, n, out, list, count, cap);
+        run(normal64Misses, (n / 200 + THREADS - 1) / THREADS, 0, k0, k1, k2, k3, k, g0, chunks, d0, n, list, count, cap, out);
+        cu.freeAsync(scratch);
+    }
+
+    private static final long MASK32 = 0xffffffffL;
+
+    /**
+     * Launches {@code f} with each argument in an 8-byte slot. A 32-bit parameter reads the low
+     * half of its slot, as the device is little endian.
+     */
+    private void run(MemorySegment f, long blocks, int shared, long... args) {
         if (blocks > Integer.MAX_VALUE) throw new IllegalArgumentException("fill too long for one launch");
-        int shared = !kind.normal() && k >= TILE_STEPS ? TILE_BYTES : 0;
-        int[] key = rng.key();
-        // Every argument sits in an 8-byte slot: key words, position, K, n, the range of the
-        // non-normal entries, and the output pointer.
-        int count = kind.normal() ? 8 : 9;
         try (Arena a = Arena.ofConfined()) {
-            MemorySegment values = a.allocate(8L * count, 8), params = a.allocate(ADDRESS, count);
-            for (int i = 0; i < 4; i++) values.set(JAVA_INT, 8L * i, key[i]);
-            values.set(JAVA_LONG, 32, rng.position());
-            values.set(JAVA_INT, 40, k);
-            values.set(JAVA_LONG, 48, n);
-            if (!kind.normal()) values.set(JAVA_LONG, 56, range);
-            values.set(JAVA_LONG, 8L * (count - 1), out);
-            for (int i = 0; i < count; i++) params.setAtIndex(ADDRESS, i, values.asSlice(8L * i));
-            cu.setCurrent(context);
-            cu.launch((odd ? oddFunctions : functions)[kind.ordinal()], (int) blocks, THREADS, shared, params);
+            MemorySegment values = a.allocate(8L * args.length, 8), params = a.allocate(ADDRESS, args.length);
+            for (int i = 0; i < args.length; i++) {
+                values.set(JAVA_LONG, 8L * i, args[i]);
+                params.setAtIndex(ADDRESS, i, values.asSlice(8L * i));
+            }
+            cu.launch(f, (int) blocks, THREADS, shared, params);
         }
     }
 

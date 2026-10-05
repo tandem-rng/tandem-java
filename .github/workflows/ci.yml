@@ -26,21 +26,26 @@ jobs:
           cache: maven
       - run: mvn -B verify
   vectors:
-    name: vector data is current
+    name: vector data and ziggurat tables are current
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: |
           git clone --depth 1 https://github.com/tandem-rng/spec ../tandem-spec
           python3 tools/gen_vectors.py ../tandem-spec/vectors.json > src/test/java/io/github/tandemrng/Vectors.java
-          git diff --exit-code src/test/java/io/github/tandemrng/Vectors.java
+          python3 tools/gen_zig_tables.py ../tandem-spec/tables/normal_f64_zig1024.json > src/main/java/io/github/tandemrng/ZigTables.java
+          git diff --exit-code src/test/java/io/github/tandemrng/Vectors.java src/main/java/io/github/tandemrng/ZigTables.java
+  # Against the tandem-cuda commit pinned in cuda/tools/build_ptx.sh, so new upstream commits do
+  # not turn CI red.
   derived:
-    name: derived data is current
+    name: derived data matches the pinned tandem-cuda
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: |
-          git clone --depth 1 https://github.com/tandem-rng/tandem-cuda ../tandem-cuda
+          pin=$(sed -n 's/^TANDEM_CUDA_COMMIT=//p' cuda/tools/build_ptx.sh)
+          git clone -q https://github.com/tandem-rng/tandem-cuda ../tandem-cuda
+          git -C ../tandem-cuda checkout -q "$pin"
           c++ -std=c++17 -I ../tandem-cuda/include tools/gen_derived.cpp -o gen_derived
           ./gen_derived > src/test/java/io/github/tandemrng/Derived.java
           git diff --exit-code src/test/java/io/github/tandemrng/Derived.java

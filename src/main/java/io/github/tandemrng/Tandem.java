@@ -28,7 +28,7 @@ import java.util.stream.Stream;
  *
  * <p>This class implements {@link RandomGenerator.SplittableGenerator}, so it works with
  * {@code ints()}, {@code doubles()} and, {@code Collections.shuffle}. The
- * interface's default {@code nextGaussian} is overridden by the Box-Muller transform of
+ * interface's default {@code nextGaussian} is overridden by the 1024-layer ziggurat of
  * {@link #nextGaussian()}, which agrees with every other Tandem port. Likewise the default
  * {@code nextExponential} is overridden by {@code -ln(1 - u)} of one double draw.
  * Every bounded integer draw uses Lemire's method, and the bounded {@code ints}, {@code longs}
@@ -63,15 +63,12 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     private transient long[] fb = NO_BLOCK;
     private transient long fbStart, fbBits;
     private static final long[] NO_BLOCK = new long[0];
-    /** Kept sine halves of the last scalar Box-Muller pairs, see {@link #nextGaussian()}. */
-    private transient boolean hasSpare, hasSpareF;
-    private transient double spare;
-    private transient double[] pairBuf;
+    /** The kept sine half of the last scalar float Box-Muller pair, see {@link #nextGaussianFloat()}. */
+    private transient boolean hasSpareF;
     private transient float[] pairBufF;
     private transient float spareF;
 
     private void dropSpares() {
-        hasSpare = false;
         hasSpareF = false;
     }
 
@@ -1040,50 +1037,32 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
             throw new IllegalArgumentException("bound must exceed origin and the range must be finite");
     }
 
+    private static final long PURPOSE_NORMAL64 = 0x4e524d3634L;
+
+    /** The fallback of the double normal at global draw index g: {@code sub(0x4e524d3634).split(g)} of this key at position 0. */
+    Tandem gaussianFallback(long g) {
+        return new Tandem(k0, k1, k2, k3, 0L, chunk).sub(PURPOSE_NORMAL64).split(g);
+    }
+
     /**
-     * Returns the cosine half of the next Box-Muller pair, {@code sqrt(-2 ln(1 - a)) cos(2 pi b)}
-     * from two double draws {@code a} and {@code b}, and keeps the sine half for the next call,
-     * which returns it without drawing. Repeated calls therefore give exactly the sequence of
-     * {@link #fillGaussian(double[])}. The kept half is dropped by {@code setPosition},
-     * {@code split}, {@code fork} and {@code sub}, and is not serialized, so the first call after
-     * deserialization starts a fresh pair. Other draws do not touch it. It uses
-     * only correctly rounded double arithmetic (a polynomial log, a folded sine and cosine series
-     * and {@code Math.sqrt}), so the result is bit identical on every JVM and in tandem-c.
+     * Returns a standard normal by the 1024-layer ziggurat of spec Appendix A from the next
+     * long draw. A draw that misses the fast path, 0.43 % of them, continues on the draws of
+     * {@code sub(0x4e524d3634).split(g)} of a generator with this key and chunk length at
+     * position 0, g being the draw's index, which leaves the position alone. Repeated calls
+     * therefore give exactly the sequence of {@link #fillGaussian(double[])}. It uses only
+     * correctly rounded double arithmetic, so the result is bit identical on every JVM and in
+     * tandem-c.
      */
     @Override
     public double nextGaussian() {
-        if (hasSpare) {
-            hasSpare = false;
-            return spare;
-        }
-        double a = nextDouble();
-        double b = nextDouble();
-        double[] z = pairBuf;
-        if (z == null) pairBuf = z = new double[2];
-        Normals.pair(a, b, z, 0);
-        spare = z[1];
-        hasSpare = true;
-        return z[0];
-    }
-
-    /** Draws a Box-Muller pair {@code {cos, sin}} from two double draws, ignoring the kept half. */
-    public double[] nextGaussian2() {
-        double a = nextDouble();
-        double b = nextDouble();
-        return gaussianPair(a, b);
-    }
-
-    private static double[] gaussianPair(double a, double b) {
-        double[] z = new double[2];
-        Normals.pair(a, b, z, 0);
-        return z;
+        long g = align(pos, 64) >>> 6;
+        return Normals.gaussian(nextLong(), this, g);
     }
 
     /**
-     * Fills with standard normals in pairs: elements {@code 2j} and {@code 2j + 1} are the cosine
-     * and sine halves from uniforms {@code 2j} and {@code 2j + 1} of {@link #fill(double[])}. An
-     * odd length uses the cosine half of its last pair and still consumes both uniforms. The
-     * kept half of {@link #nextGaussian()} is neither used nor changed.
+     * Fills with standard normals: element {@code i} is the ziggurat of draw {@code i} of
+     * {@link #fill(long[])}, so a fill equals the sequence of {@link #nextGaussian()} and a fill
+     * cut at any element equals the whole fill. An empty fill aligns the position to 64 bits.
      */
     public void fillGaussian(double[] a) {
         fillGaussian(a, 0, a.length);
@@ -1092,25 +1071,25 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     /** As {@link #fillGaussian(double[])} on {@code a[off, off + len)}. */
     public void fillGaussian(double[] a, int off, int len) {
         Objects.checkFromIndexSize(off, len, a.length);
-        double[] u = new double[2 * Math.min((len + 1) / 2, GAUSSIAN_BLOCK)];
-        for (int i = off, end = off + len; i < end; ) {
-            int pairs = Math.min((end - i + 1) / 2, GAUSSIAN_BLOCK);
-            fill(u, 0, 2 * pairs);
-            for (int j = 0; j < pairs; j++, i += 2) {
-                if (i + 1 < end) {
-                    Normals.pair(u[2 * j], u[2 * j + 1], a, i);
-                } else {
-                    a[i] = gaussianPair(u[2 * j], u[2 * j + 1])[0];
-                }
-            }
+        long first = align(pos, 64) >>> 6;
+        long[] r = new long[Math.min(len, GAUSSIAN_BLOCK)];
+        if (len == 0) fill(r, 0, 0);
+        for (int i = 0; i < len; ) {
+            int m = Math.min(len - i, GAUSSIAN_BLOCK);
+            fill(r, 0, m);
+            for (int j = 0; j < m; j++, i++) a[off + i] = Normals.gaussian(r[j], this, first + i);
         }
     }
 
-    private static final int GAUSSIAN_BLOCK = 256;
+    private static final int GAUSSIAN_BLOCK = 1024;
 
     /**
-     * As {@link #nextGaussian()} computed entirely in float from two float draws, with its own
-     * kept sine half. Bit identical to tandem-c.
+     * Returns the cosine half of the next float Box-Muller pair,
+     * {@code sqrt(-2 ln(1 - a)) cos(2 pi b)} from two float draws {@code a} and {@code b}, computed
+     * entirely in float, and keeps the sine half for the next call, which returns it without
+     * drawing. Repeated calls therefore give exactly the sequence of {@link #fillGaussian(float[])}.
+     * The kept half is dropped by {@code setPosition}, {@code split}, {@code fork} and {@code sub},
+     * and is not serialized. Bit identical to tandem-c.
      */
     public float nextGaussianFloat() {
         if (hasSpareF) {
@@ -1140,7 +1119,12 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         return z;
     }
 
-    /** As {@link #fillGaussian(double[])} in float, from uniforms of {@link #fill(float[])}. */
+    /**
+     * Fills with float normals in Box-Muller pairs: elements {@code 2j} and {@code 2j + 1} are the
+     * cosine and sine halves from uniforms {@code 2j} and {@code 2j + 1} of {@link #fill(float[])}.
+     * An odd length uses the cosine half of its last pair and still consumes both uniforms. The
+     * kept half of {@link #nextGaussianFloat()} is neither used nor changed.
+     */
     public void fillGaussian(float[] a) {
         fillGaussian(a, 0, a.length);
     }

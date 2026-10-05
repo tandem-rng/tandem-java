@@ -18,8 +18,8 @@ final class Driver {
 
     private final MethodHandle cuInit, cuDeviceGet, cuDeviceGetAttribute, cuDevicePrimaryCtxRetain,
             cuDevicePrimaryCtxRelease, cuCtxSetCurrent, cuCtxSynchronize, cuModuleLoadData,
-            cuModuleUnload, cuModuleGetFunction, cuMemAlloc, cuMemFree, cuMemcpyDtoH,
-            cuLaunchKernel, cuGetErrorString;
+            cuModuleUnload, cuModuleGetFunction, cuMemAlloc, cuMemFree, cuMemAllocAsync, cuMemFreeAsync,
+            cuMemsetD32Async, cuMemcpyDtoH, cuLaunchKernel, cuGetErrorString;
 
     /** Loads the driver once; a failed load is retried by the next call. */
     static synchronized Driver get() {
@@ -49,6 +49,9 @@ final class Driver {
         cuModuleGetFunction = b.bind("cuModuleGetFunction", ADDRESS, ADDRESS, ADDRESS);
         cuMemAlloc = b.bind("cuMemAlloc_v2", ADDRESS, JAVA_LONG);
         cuMemFree = b.bind("cuMemFree_v2", JAVA_LONG);
+        cuMemAllocAsync = b.bind("cuMemAllocAsync", ADDRESS, JAVA_LONG, ADDRESS);
+        cuMemFreeAsync = b.bind("cuMemFreeAsync", JAVA_LONG, ADDRESS);
+        cuMemsetD32Async = b.bind("cuMemsetD32Async", JAVA_LONG, JAVA_INT, JAVA_LONG, ADDRESS);
         // Critical, so the copy may write straight into a Java array.
         cuMemcpyDtoH = Linker.nativeLinker().downcallHandle(
                 b.find("cuMemcpyDtoH_v2"),
@@ -192,6 +195,38 @@ final class Driver {
     void free(long devicePointer) {
         try {
             check((int) cuMemFree.invokeExact(devicePointer), "cuMemFree");
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    /**
+     * Stream-ordered memory on the default stream, which the pool of the device reuses from one
+     * call to the next. Returns 0 where the device or driver has no memory pools.
+     */
+    long allocAsync(long bytes) {
+        try (Arena a = Arena.ofConfined()) {
+            MemorySegment p = a.allocate(JAVA_LONG);
+            if ((int) cuMemAllocAsync.invokeExact(p, bytes, MemorySegment.NULL) != 0) return 0;
+            return p.get(JAVA_LONG, 0);
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    /** Frees memory of {@link #allocAsync} once the work launched before is done. */
+    void freeAsync(long devicePointer) {
+        try {
+            check((int) cuMemFreeAsync.invokeExact(devicePointer, MemorySegment.NULL), "cuMemFreeAsync");
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    /** Sets {@code words} 32-bit words to zero, ordered with the kernels on the default stream. */
+    void zeroAsync(long devicePointer, long words) {
+        try {
+            check((int) cuMemsetD32Async.invokeExact(devicePointer, 0, words, MemorySegment.NULL), "cuMemsetD32Async");
         } catch (Throwable t) {
             throw rethrow(t);
         }
