@@ -20,7 +20,8 @@ public final class Bench {
             System.out.println("|---|---|---|");
             for (TandemCuda.Kind kind : TandemCuda.Kind.values()) {
                 long range = kind == TandemCuda.Kind.U32_BELOW || kind == TandemCuda.Kind.U64_BELOW ? 1000 : 0;
-                StringBuilder row = new StringBuilder("| " + kind.entry + " |");
+                String label = kind == TandemCuda.Kind.NORMAL_F64 ? "fill_normal_f64 (tandem.cuh)" : kind.entry;
+                StringBuilder row = new StringBuilder("| " + label + " |");
                 for (int log = 26; log <= 28; log += 2) {
                     long n = 1L << log;
                     long end = System.nanoTime() + 500_000_000L;
