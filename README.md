@@ -24,7 +24,7 @@ Tandem rng = Tandem.seed(42);                  // 128-bit seed with whitening, d
 double[] xs = new double[1 << 20];
 rng.fill(xs);                                  // the values of repeated nextDouble()
 Tandem worker = rng.split(7);                  // by index, from the key alone
-double g = worker.nextGaussian();              // Box-Muller, bit identical to tandem-c
+double g = worker.nextGaussian();              // ziggurat, bit identical to tandem-c
 ```
 
 See [API](docs/api.md) for every draw, [GPU module](docs/gpu.md) for the CUDA fills, and

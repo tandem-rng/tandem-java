@@ -10,7 +10,7 @@ double x = rng.nextDouble();
 int[] words = new int[1 << 20];
 rng.fill(words);                               // the values of repeated nextInt()
 int i = rng.nextInt(10);                       // uniform in [0, 10), Lemire
-double g = rng.nextGaussian();                 // Box-Muller from two double draws
+double g = rng.nextGaussian();                 // 1024-layer ziggurat of one long draw
 double e = rng.nextExponential();              // -ln(1 - u) from one double draw
 Tandem worker = rng.split(7);                  // by index, from the key alone
 Tandem[] kids = rng.fork(4);                   // from the current block, parent moves on
@@ -27,7 +27,7 @@ double y = rng.atDouble(1000);                 // element 1000 of the fill from 
 - `split(i)`, `fork(n)`, `sub(purpose)`, `setPosition`, `key()`, `position()`, `chunkLength()`.
 - Bounded integers: `nextInt(bound)`, `nextLong(bound)`, `nextInts`, `nextLongs`,
   `belowU32`, `belowU64`, `fillBelowU32`, `fillBelowU64`. They use Lemire's method.
-- Normals: `nextGaussian`, `nextGaussianFloat`, `nextGaussian2`, `nextGaussianFloat2`,
+- Normals: `nextGaussian`, `nextGaussianFloat`, `nextGaussianFloat2`,
   `fillGaussian(double[] | float[])`. They are bit identical to `tandem-c`.
 - Exponentials: `nextExponential`, `nextExponentialFloat`, `fillExponential`.
   They are bit identical to `tandem-c` and `tandem-cuda`.
@@ -52,15 +52,21 @@ double y = rng.atDouble(1000);                 // element 1000 of the fill from 
 - Bounded integers (`nextInt(bound)`, `nextLong(bound)`) and standard normals are not in the
   specification. They follow the shared device core in `tandem-cuda`, so every port returns the
   same values.
-- Standard normals come in Box-Muller pairs: two uniform draws give a cosine half and a sine
-  half. `nextGaussian2()` and `nextGaussianFloat2()` return the pair. `fillGaussian(double[])` and
-  `fillGaussian(float[])` fill elements `2j`, `2j + 1` from uniforms `2j`, `2j + 1` of the plain
-  fill, and an odd length uses the cosine half of its last pair and still consumes both
-  uniforms. Scalar `nextGaussian()` and `nextGaussianFloat()` return the cosine half and keep the
-  sine half for the next call, so repeated calls give exactly the fill sequence. The kept half is
-  dropped by `setPosition`, `split`, `fork` and `sub` and is not serialized: after
-  deserialization the next call starts a fresh pair. Double normals are computed in double and
-  float normals in float, both bit identical to `tandem-c`.
+- Double normals are the 1024-layer ziggurat of Appendix A, one long draw each.
+  `nextGaussian()` and element `i` of `fillGaussian(double[])` take that draw. A draw that misses
+  the fast path, 0.43 % of them, continues on `sub(0x4e524d3634).split(g)` of the key at
+  position 0, where `g` is the draw's global index. So a fill equals the scalar calls, a fill cut
+  at any element equals the whole fill, and the values equal `tandem-c`'s bit for bit. An empty
+  fill aligns the position to 64 bits. The tables are generated from the spec's JSON into
+  `ZigTables.java` by `tools/gen_zig_tables.py`.
+- Float normals come in Box-Muller pairs: two float draws give a cosine half and a sine half.
+  `nextGaussianFloat2()` returns the pair. `fillGaussian(float[])` fills elements `2j`, `2j + 1`
+  from uniforms `2j`, `2j + 1` of the plain fill, and an odd length uses the cosine half of its
+  last pair and still consumes both uniforms. Scalar `nextGaussianFloat()` returns the cosine
+  half and keeps the sine half for the next call, so repeated calls give exactly the fill
+  sequence. The kept half is dropped by `setPosition`, `split`, `fork` and `sub` and is not
+  serialized: after deserialization the next call starts a fresh pair. Float normals are
+  computed in float and are bit identical to `tandem-c`.
 - Standard exponentials follow Appendix A of the specification: `-ln(1 - u)` from one uniform
   each, so a fill is random access. `nextExponential()` (the interface method, overridden) and
   `nextExponentialFloat()` draw one double or float. `fillExponential(double[])` and
@@ -82,7 +88,7 @@ double y = rng.atDouble(1000);                 // element 1000 of the fill from 
   `belowU32`, `belowU64`, `fillBelowU32` and `fillBelowU64` keep their widths.
 - Implements `java.util.random.RandomGenerator.SplittableGenerator`, so it drives `ints()`,
   `doubles()`, `splits()` and `Collections.shuffle`. The interface's default `nextGaussian` is
-  overridden by the Box-Muller transform. Every bounded integer draw uses Lemire's method:
+  overridden by the ziggurat. Every bounded integer draw uses Lemire's method:
   `nextInt(bound)`, `nextInt(origin, bound)`, `nextLong(bound)`, `nextLong(origin, bound)` and
   the bounded `ints`, `longs` and `doubles` streams, which are sequential loops over those scalar
   draws (so `ints(n, 0, 1000)` equals n calls of `nextInt(1000)`, and an origin shifts by

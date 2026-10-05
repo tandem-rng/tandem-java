@@ -26,25 +26,30 @@ not depend on it.
   address is new device memory, so Java code cannot read device memory by accident. The memory is
   freed when the arena closes, also after `close()` of the handle.
 - Every fill writes the values of the CPU fill of the same name and moves the generator's position
-  as that fill does. Uniform and bounded fills are equal to the CPU fills bit for bit. Double
-  normals agree to a relative 1e-12. Float normals agree to 16 ulps plus 3e-6, because the GPU
+  as that fill does. Uniform, bounded and double normal fills are equal to the CPU fills bit for
+  bit. Float normals agree to 16 ulps plus 3e-6, because the GPU
   takes the angle through `__sincosf`, whose absolute error of up to 2^-21.41 the radius
   multiplies.
 - A rejected bounded draw retries on the fallback stream the CPU fill uses, keyed by the global
   draw index, as `tandem-cuda` does at the pinned commit. Its fixtures include fills from
   nonzero starts with rejections.
-- A fill sets the new position through `setPosition`. So it drops the kept halves of
-  `nextGaussian`, and its end position must stay below 2^63.
+- A fill sets the new position through `setPosition`. So it drops the kept half of
+  `nextGaussianFloat`, and its end position must stay below 2^63.
 
 Run the JVM with `--enable-native-access=ALL-UNNAMED`, or with the name of your module. Without the
 flag, JDK 25 prints a warning at the first driver call.
 
 The kernels are `cuda/kernels/tandem_fills.cu`, entry points over `tandem.cuh` and `core.hpp` of
-[tandem-cuda](https://github.com/tandem-rng/tandem-cuda) at commit `5806e51`. They mirror its fill
+[tandem-cuda](https://github.com/tandem-rng/tandem-cuda) at commit `0ff5f18`. They mirror its fill
 kernels: the tile kernel for `K >= 8` with 16-byte stores, the direct kernel for smaller `K`, and
-the normal kernels with the fast `__sincosf` float path. `cuda/tools/build_ptx.sh` compiles them
+the float normal kernels with the fast `__sincosf` path. The double normals launch the kernels of
+`tandem.cuh` itself, by their mangled names, as its `fill_normal_f64_impl` plans them: the fused
+kernel below 2^16 elements, else the table pass, which lists its misses in memory from
+`cuMemAllocAsync`, and the kernel that continues them. `cuda/tools/build_ptx.sh` compiles them
 with nvcc 12.8 (clang 19 as host compiler, `pixi run -e nvcc ptx` in `cuda/`) into
-`tandem_fills_sm80.ptx`, a resource of the jar. The driver JIT-compiles it for the GPU at hand on
+`tandem_fills_sm80.ptx`, a resource of the jar. The script zeroes the per-machine hashes that nvcc
+puts in the names of static device tables, so CI rebuilds the file byte for byte. The driver
+JIT-compiles it for the GPU at hand on
 the first `open`, which takes about 1 s once and is cached by the driver after that. The PTX
 targets `sm_80` with ISA 8.7, so it needs driver 570 (CUDA 12.8) or newer and runs on every GPU
 of compute capability 8.0 or later. There is no `sm_90` PTX, because the kernels use nothing that
