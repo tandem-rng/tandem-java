@@ -27,8 +27,12 @@ nvcc -ptx -arch=sm_80 -std=c++20 -O3 -ccbin clang++ -I"$src" -I"$src/include" \
 # driver's first JIT of the module take 2.5 s instead of 1 s. Our entries are extern "C", so
 # every mangled entry goes except the Float64 normal kernels of tandem.cuh, which TandemCuda
 # launches by their mangled names.
+# nvcc names the static device tables of normal_tables.hpp with hashes that differ between
+# machines. Zeros of the same length keep the mangled names valid and the file reproducible.
 awk '/^\t\/\/ \.globl\t_Z/ && !/fill_normal64_/ { skip = 1 } !skip { print } skip && /^}$/ { skip = 0 }' \
-    "$src/all.ptx" > "$out/tandem_fills_sm80.ptx"
+    "$src/all.ptx" |
+    sed -E 's/_INTERNAL_[0-9a-f]{8}_([0-9]+_tandem_fills_cu)_[0-9a-f]{8}/_INTERNAL_00000000_\1_00000000/g' \
+    > "$out/tandem_fills_sm80.ptx"
 ptxas -arch=sm_80 "$out/tandem_fills_sm80.ptx" -o /dev/null
 
 mkdir -p "$here/src/test/resources/cross"
