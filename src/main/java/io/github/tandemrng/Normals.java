@@ -53,37 +53,40 @@ final class Normals {
      * The ziggurat normal of the 64-bit draw {@code r} whose global draw index is {@code g}
      * under the key of {@code keyed}. Bits 0-9 pick the layer, bit 10 the sign, bits 11-63 are
      * the magnitude {@code ra}, and {@code +-ra W[i]} is the normal when {@code ra < K[i]},
-     * 99.57 % of the time. The negation gives -0.0 for {@code ra = 0} with the sign set.
+     * 99.57 % of the time. The sign flips the sign bit, which gives -0.0 for {@code ra = 0}
+     * with the sign set, and takes no branch, because the sign is a coin flip.
      */
     static double gaussian(long r, Tandem keyed, long g) {
         int i = (int) r & 1023;
         long ra = r >>> 11;
-        double x = ra * ZigTables.W[i];
-        if ((r & 1024) != 0) x = -x;
+        double x = Double.longBitsToDouble(Double.doubleToRawLongBits(ra * ZigTables.W[i]) ^ ((r & 1024) << 53));
         return ra < ZigTables.K[i] ? x : gaussianMiss(r, x, keyed.gaussianFallback(g));
     }
 
     /**
      * A miss continues on the draws of its own fallback generator: the tail beyond R by
-     * Marsaglia's method, else the wedge test {@code ln y < -x^2 / 2}, else a new draw.
+     * Marsaglia's method, else the wedge test {@code ln y < -x^2 / 2}, else a new draw. Draw d
+     * of the fallback is its element d by random access, which computes one block: a miss takes
+     * one to three draws, and a scalar draw would generate the generator's whole block cache.
      */
     private static double gaussianMiss(long r, double x, Tandem fallback) {
         double[] w = ZigTables.W, y = ZigTables.Y;
         long[] k = ZigTables.K;
+        long d = 0;
         for (;;) {
             int i = (int) r & 1023;
             if (i == 0) {
                 double a, b;
                 do {
-                    a = exponential(fallback.nextDouble()) / ZigTables.R;
-                    b = exponential(fallback.nextDouble());
+                    a = exponential(fallback.atDouble(d++)) / ZigTables.R;
+                    b = exponential(fallback.atDouble(d++));
                 } while (b + b < a * a);
                 double t = ZigTables.R + a;
                 return (r & 1024) != 0 ? -t : t;
             }
-            double h = y[i] + fallback.nextDouble() * (y[i + 1] - y[i]);
+            double h = y[i] + fallback.atDouble(d++) * (y[i + 1] - y[i]);
             if (-0.5 * neg2Log(h) < -0.5 * (x * x)) return x;
-            r = fallback.nextLong();
+            r = fallback.atLong(d++);
             i = (int) r & 1023;
             long ra = r >>> 11;
             x = ra * w[i];
