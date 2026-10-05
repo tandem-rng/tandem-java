@@ -5,36 +5,43 @@
 ## CPU
 
 One thread, `pixi run bench`, Apple M4 Pro, JDK 25.0.2 (Azul Zulu). Minimum of seven runs after
-three warm-up runs. Nanoseconds per scalar draw, GiB/s for arrays of 2^24 elements.
+three warm-up runs. Nanoseconds per scalar draw, GiB/s for arrays of 2^24 elements. The Tandem
+and SplittableRandom rows are the median of three such runs on 2026-10-05, one window.
 
 | generator | nextInt ns | nextLong ns | nextDouble ns | nextGaussian ns | int[] loop GiB/s | double[] loop GiB/s | int[] fill GiB/s | double[] fill GiB/s |
 |---|---|---|---|---|---|---|---|---|
-| Tandem | 1.22 | 1.72 | 1.95 | 3.26 | 2.98 | 3.86 | 5.64 | 6.33 |
+| Tandem | 1.14 | 1.53 | 1.69 | 2.49 | 3.21 | 4.43 | 9.35 | 8.59 |
 | L64X128MixRandom | 1.13 | 1.10 | 1.12 | 3.35 | 3.32 | 6.60 | - | - |
-| SplittableRandom | 0.43 | 0.48 | 0.61 | 2.23 | 9.38 | 14.74 | - | - |
+| SplittableRandom | 0.44 | 0.49 | 0.62 | 2.28 | 9.32 | 15.15 | - | - |
 | Random | 3.98 | 7.97 | 7.96 | 13.76 | 0.07 | 0.13 | - | - |
 
 Exponentials, same machine and method:
 
 | generator | nextExponential ns | `fillExponential(double[])` GiB/s | `fillExponential(float[])` GiB/s |
 |---|---|---|---|
-| Tandem | 3.00 | 2.89 | 2.02 |
+| Tandem | 2.69 | 3.31 | 2.18 |
 | L64X128MixRandom | 3.55 | - | - |
 
-`fillGaussian` runs at about 2.8 GiB/s for `double[]` and 1.4 GiB/s for `float[]`. The double
-figures are the ziggurat, measured on 2026-10-05 with the same method; `tools/Bench.java` now
-prints both fills. A miss draws its fallback by random access, one block per draw.
+`fillGaussian` runs at 3.98 GiB/s for `double[]` and 1.85 GiB/s for `float[]`, the median of the
+same three runs. The double fill reads one table of 2048 pairs, the layer threshold and the
+width with the sign of bit 10, by the 11 low bits of the draw. Its loop has no call and only
+records the misses, which a second loop finishes. A miss draws its fallback by random access, F
+on locals, and two draws share one lane.
 
 Each generator runs in its own JVM. Arrays are filled by a loop of draws or by `Tandem.fill`.
 
 A scalar draw costs in proportion to the bytes it takes, because every row is generated on
 demand and generation dominates: a `long` takes twice the stream of an `int`. The cached block is
 read through fields of the generator, with one unsigned range check per draw and the refill out of
-line. Each lane of a row is independent, so the cache holds a block of 32 rows. Four lanes step
-through the block together with their state in registers and store packed `long` pairs. The
-seeding function runs four lanes at a time in the same way. `long[]` and `double[]` fills generate
-whole blocks directly into the destination. The JIT does not vectorise the row step, so fills stay
-at roughly 6 GiB/s on the M4 Pro against about 20 GiB/s in `tandem-c`.
+line. Each lane of a row is independent, so the cache holds a block of 32 rows. Two lanes step
+through the block together with their state in registers. Four lanes need 32 state words, more
+than C2 keeps in the AArch64 registers, and spilled half the loop to the stack. The seeding
+function runs two lanes at a time in the same way. `int[]`, `long[]` and `double[]` fills generate
+whole blocks directly into the destination. The row loops end on `b != end`, which C2 does not
+count: it unrolls counted loops with many xors twice, and the unrolled `int[]` loop spilled. A
+double takes its high word through the floating-point units, `hi 2^-32 + (lo >>> 11) 2^-53`,
+which is exact and leaves the integer units to the step. The JIT does not vectorise the row step,
+so fills stay near 9 GiB/s on the M4 Pro against about 20 GiB/s in `tandem-c`.
 
 The JIT does not vectorise the polynomial logarithm either: the loop runs at the same speed with
 `-XX:-UseSuperWord`. So `fillExponential`
@@ -47,9 +54,13 @@ are bit identical to tandem-c on every JVM and compiler (tests check the hashes 
 and 2e6 float normals at five positions).
 
 The Vector API (`jdk.incubator.vector`, still incubating in JDK 25) is not used. It has no
-widening or high-half 32-bit multiply, which the step needs twice. Emulating it with 16-bit pieces
-or with long vectors measured 20 to 22 ns for one four-lane step on the M4 Pro, against 7.2 ns for
-four scalar lanes, so a vector fill would be slower than the scalar one.
+widening or high-half 32-bit multiply, which the step needs twice, and C2 multiplies long lanes
+through the general registers on NEON. With the high half from four 16-bit products, one
+four-lane group of rows with its store reached 9.3 GiB/s on the M4 Pro without seeding or double
+conversion, bound by the latency of that multiply chain. Two groups need more than the 32 NEON
+registers and spill. Two-vector `selectFrom` is not intrinsified on NEON, two-vector `rearrange`
+costs two `tbl` and a select, and a loop that also steps scalar lanes passes C2's inlining node
+limit, after which the vectors are boxed. The scalar fill is as fast and needs no `--add-modules`.
 
 ## GPU
 
