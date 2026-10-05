@@ -6,18 +6,19 @@ and `pixi run bench` in `cuda/` gives the GPU figures.
 ## CPU
 
 One thread, Apple M4 Pro, JDK 25.0.2 (Azul Zulu). Minimum of seven runs after three warm-up
-runs. Nanoseconds per scalar draw, GiB/s for arrays of 2^24 elements. The Tandem and
-SplittableRandom rows are the median of three such runs on 2026-10-05, in one session.
+runs, in GiB/s of output: 2^25 scalar draws at 4 bytes for `nextInt` and 8 for the others, and
+arrays of 2^24 elements. Every row is the median of three such runs on 2026-10-05, in one
+session.
 
-| generator | nextInt ns | nextLong ns | nextDouble ns | nextGaussian ns | nextExponential ns | int[] loop GiB/s | double[] loop GiB/s |
+| generator | nextInt GiB/s | nextLong GiB/s | nextDouble GiB/s | nextGaussian GiB/s | nextExponential GiB/s | int[] loop GiB/s | double[] loop GiB/s |
 |---|---|---|---|---|---|---|---|
-| Tandem | 1.14 | 1.51 | 1.66 | 2.47 | 2.65 | 3.28 | 4.42 |
-| L64X128MixRandom | 1.13 | 1.10 | 1.12 | 3.35 | 3.55 | 3.32 | 6.60 |
-| SplittableRandom | 0.43 | 0.49 | 0.62 | 2.26 | 2.32 | 9.37 | 15.09 |
-| Random | 3.98 | 7.97 | 7.96 | 13.76 | - | 0.07 | 0.13 |
+| Tandem | 3.30 | 4.93 | 4.50 | 3.03 | 2.78 | 3.26 | 4.41 |
+| L64X128MixRandom | 3.25 | 6.71 | 6.61 | 2.19 | 2.11 | 3.28 | 6.54 |
+| SplittableRandom | 8.59 | 15.29 | 12.16 | 3.31 | 3.21 | 9.23 | 15.17 |
+| Random | 0.93 | 0.92 | 0.93 | 0.54 | 0.81 | 0.09 | 0.15 |
 
 Scalar draws always run in Java. Array fills, in GiB/s, in Java and through `libtandem` (tandem-c
-d9e1e54, built by `pixi run native`):
+d9e1e54, built by `pixi run native`), both columns from one earlier session the same day:
 
 | fill | Java | libtandem |
 |---|---|---|
@@ -31,7 +32,7 @@ d9e1e54, built by `pixi run native`):
 | `fillExponential(float[])` | 2.17 | 6.60 |
 
 The libtandem column matches tandem-c's own figures. A fill of 512 elements or more takes the
-library: at 512 doubles it costs 306 ns against 456 ns in Java. Each call writes straight into the
+library, which is faster than Java from that length on. Each call writes straight into the
 Java array as a critical call, at most 2^16 elements at a time, so a long fill does not hold off
 the garbage collector for its whole length. When the library loads, a fill of 300 longs and 300
 normals is compared with the Java fill, and a library that disagrees is not used.
