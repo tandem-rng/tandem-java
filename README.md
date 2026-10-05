@@ -10,8 +10,11 @@ Pure Java implementation of [Tandem8x32](https://github.com/tandem-rng/spec), a 
 pseudorandom number generator. It produces the specified stream bit for bit, as a JDK
 `RandomGenerator`, and the optional `tandem-rng-cuda` module fills on NVIDIA GPUs.
 
-The artifact is `tandem-rng`. It needs Java 25 or later, with no native code and no runtime
-dependencies.
+The artifact is `tandem-rng`. It needs Java 25 or later and no runtime dependencies.
+`pixi run native` builds tandem-c's `libtandem` at a pinned commit, and with its path in
+`-Dtandem.native` (plus `--enable-native-access=ALL-UNNAMED`) or the library on
+`java.library.path`, array fills of 512 elements or more run in it. Without it they run in
+Java and give the same bits.
 
 ```sh
 pixi run test        # mvn -B verify

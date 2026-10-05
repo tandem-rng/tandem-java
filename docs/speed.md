@@ -1,32 +1,45 @@
 # Speed
 
-`pixi run bench` produces the CPU figures, and `pixi run bench` in `cuda/` the GPU figures.
+`pixi run bench` produces the CPU figures, `pixi run bench-native` adds the row with libtandem,
+and `pixi run bench` in `cuda/` gives the GPU figures.
 
 ## CPU
 
-One thread, `pixi run bench`, Apple M4 Pro, JDK 25.0.2 (Azul Zulu). Minimum of seven runs after
-three warm-up runs. Nanoseconds per scalar draw, GiB/s for arrays of 2^24 elements. The Tandem
-and SplittableRandom rows are the median of three such runs on 2026-10-05, one window.
+One thread, Apple M4 Pro, JDK 25.0.2 (Azul Zulu). Minimum of seven runs after three warm-up
+runs. Nanoseconds per scalar draw, GiB/s for arrays of 2^24 elements. The Tandem and
+SplittableRandom rows are the median of three such runs on 2026-10-05, in one session.
 
-| generator | nextInt ns | nextLong ns | nextDouble ns | nextGaussian ns | int[] loop GiB/s | double[] loop GiB/s | int[] fill GiB/s | double[] fill GiB/s |
-|---|---|---|---|---|---|---|---|---|
-| Tandem | 1.14 | 1.53 | 1.69 | 2.49 | 3.21 | 4.43 | 9.35 | 8.59 |
-| L64X128MixRandom | 1.13 | 1.10 | 1.12 | 3.35 | 3.32 | 6.60 | - | - |
-| SplittableRandom | 0.44 | 0.49 | 0.62 | 2.28 | 9.32 | 15.15 | - | - |
-| Random | 3.98 | 7.97 | 7.96 | 13.76 | 0.07 | 0.13 | - | - |
+| generator | nextInt ns | nextLong ns | nextDouble ns | nextGaussian ns | nextExponential ns | int[] loop GiB/s | double[] loop GiB/s |
+|---|---|---|---|---|---|---|---|
+| Tandem | 1.14 | 1.51 | 1.66 | 2.47 | 2.65 | 3.28 | 4.42 |
+| L64X128MixRandom | 1.13 | 1.10 | 1.12 | 3.35 | 3.55 | 3.32 | 6.60 |
+| SplittableRandom | 0.43 | 0.49 | 0.62 | 2.26 | 2.32 | 9.37 | 15.09 |
+| Random | 3.98 | 7.97 | 7.96 | 13.76 | - | 0.07 | 0.13 |
 
-Exponentials, same machine and method:
+Scalar draws always run in Java. Array fills, in GiB/s, in Java and through `libtandem` (tandem-c
+d9e1e54, built by `pixi run native`):
 
-| generator | nextExponential ns | `fillExponential(double[])` GiB/s | `fillExponential(float[])` GiB/s |
-|---|---|---|---|
-| Tandem | 2.69 | 3.31 | 2.18 |
-| L64X128MixRandom | 3.55 | - | - |
+| fill | Java | libtandem |
+|---|---|---|
+| `fill(int[])` | 9.37 | 18.64 |
+| `fill(long[])` | 8.49 | 18.80 |
+| `fill(float[])` | 5.44 | 16.05 |
+| `fill(double[])` | 8.58 | 16.33 |
+| `fillGaussian(double[])` | 3.97 | 7.58 |
+| `fillGaussian(float[])` | 1.85 | 5.46 |
+| `fillExponential(double[])` | 3.31 | 6.03 |
+| `fillExponential(float[])` | 2.17 | 6.60 |
 
-`fillGaussian` runs at 3.98 GiB/s for `double[]` and 1.85 GiB/s for `float[]`, the median of the
-same three runs. The double fill reads one table of 2048 pairs, the layer threshold and the
-width with the sign of bit 10, by the 11 low bits of the draw. Its loop has no call and only
-records the misses, which a second loop finishes. A miss draws its fallback by random access, F
-on locals, and two draws share one lane.
+The libtandem column matches tandem-c's own figures. A fill of 512 elements or more takes the
+library: at 512 doubles it costs 306 ns against 456 ns in Java. Each call writes straight into the
+Java array as a critical call, at most 2^16 elements at a time, so a long fill does not hold off
+the garbage collector for its whole length. When the library loads, a fill of 300 longs and 300
+normals is compared with the Java fill, and a library that disagrees is not used.
+
+The Java double normal fill reads one table of 2048 pairs, the layer threshold and the width with
+the sign of bit 10, by the 11 low bits of the draw. Its loop has no call and only records the
+misses, which a second loop finishes. A miss draws its fallback by random access, F on locals,
+and two draws share one lane.
 
 Each generator runs in its own JVM. Arrays are filled by a loop of draws or by `Tandem.fill`.
 

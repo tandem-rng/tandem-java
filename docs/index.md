@@ -11,7 +11,9 @@ Pure Java implementation of Tandem8x32. It produces the stream of the
 
 ## Install
 
-The artifact is `tandem-rng`. Java 25 or later, no native code, no runtime dependencies.
+The artifact is `tandem-rng`. Java 25 or later, no runtime dependencies. Array fills of 512
+elements or more run in tandem-c's `libtandem` when `-Dtandem.native` names it or it is on
+`java.library.path`; `pixi run native` builds it at a pinned commit.
 
 Java 25 (the current LTS) or later, built with `--release 25` and tested on JDK 25 and 27.
 
