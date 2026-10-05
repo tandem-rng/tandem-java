@@ -9,4 +9,8 @@ maven = "*"
 
 [tasks]
 test = "mvn -B verify"
+# Builds libtandem from the pinned tandem-c and runs the suite in Java and through it.
+native = "bash tools/build_native.sh"
+test-native = "bash tools/build_native.sh && mvn -B verify -Pnative"
 bench = "mvn -B -q -DskipTests package && java -Xmx2g -cp target/classes tools/Bench.java"
+bench-native = "mvn -B -q -DskipTests package && java -Xmx2g -Dtandem.native=$(bash tools/build_native.sh) -cp target/classes tools/Bench.java"

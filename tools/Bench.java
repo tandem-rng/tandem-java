@@ -1,4 +1,6 @@
 import io.github.tandemrng.Tandem;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.SplittableRandom;
 import java.util.random.RandomGenerator;
 
@@ -35,7 +37,7 @@ public final class Bench {
 
     private static RandomGenerator create(String name) {
         return switch (name) {
-            case "Tandem" -> Tandem.seed(42);
+            case "Tandem", "Tandem libtandem" -> Tandem.seed(42);
             case "L64X128MixRandom" -> RandomGenerator.of("L64X128MixRandom");
             case "SplittableRandom" -> new SplittableRandom(42);
             case "Random" -> new java.util.Random(42);
@@ -80,11 +82,21 @@ public final class Bench {
             for (int i = 0; i < ARRAY; i++) doubles[i] = r.nextDouble();
             sink = (long) doubles[ARRAY - 1];
         });
-        String intFill = "-", doubleFill = "-", expFill = "-", expFillF = "-", gaussFill = "-", gaussFillF = "-";
+        String intFill = "-", longFill = "-", floatFill = "-", doubleFill = "-", expFill = "-", expFillF = "-", gaussFill = "-", gaussFillF = "-";
         if (r instanceof Tandem t) {
             intFill = gib(best(() -> {
                 t.fill(ints);
                 sink = ints[ARRAY - 1];
+            }), 4);
+            long[] longs = new long[ARRAY];
+            longFill = gib(best(() -> {
+                t.fill(longs);
+                sink = longs[ARRAY - 1];
+            }), 8);
+            float[] floats = new float[ARRAY];
+            floatFill = gib(best(() -> {
+                t.fill(floats);
+                sink = (long) floats[ARRAY - 1];
             }), 4);
             doubleFill = gib(best(() -> {
                 t.fill(doubles);
@@ -94,7 +106,6 @@ public final class Bench {
                 t.fillExponential(doubles);
                 sink = (long) doubles[ARRAY - 1];
             }), 8);
-            float[] floats = new float[ARRAY];
             expFillF = gib(best(() -> {
                 t.fillExponential(floats);
                 sink = (long) floats[ARRAY - 1];
@@ -109,8 +120,8 @@ public final class Bench {
             }), 4);
         }
         System.out.printf(
-                "| %s | %.2f | %.2f | %.2f | %.2f | %.2f | %s | %s | %s | %s | %s | %s | %s | %s |%n",
-                name, nextInt, nextLong, nextDouble, gauss, expo, gib(intLoop, 4), gib(doubleLoop, 8), intFill, doubleFill, expFill, expFillF,
+                "| %s | %.2f | %.2f | %.2f | %.2f | %.2f | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |%n",
+                name, nextInt, nextLong, nextDouble, gauss, expo, gib(intLoop, 4), gib(doubleLoop, 8), intFill, longFill, floatFill, doubleFill, expFill, expFillF,
                 gaussFill, gaussFillF);
     }
 
@@ -124,13 +135,17 @@ public final class Bench {
             return;
         }
         System.out.printf("JDK %s, %s %s%n%n", Runtime.version(), System.getProperty("os.name"), System.getProperty("os.arch"));
-        System.out.println("| generator | nextInt ns | nextLong ns | nextDouble ns | nextGaussian ns | nextExponential ns | int[] loop GiB/s | double[] loop GiB/s | int[] fill GiB/s | double[] fill GiB/s | exponential double[] fill GiB/s | exponential float[] fill GiB/s | normal double[] fill GiB/s | normal float[] fill GiB/s |");
-        System.out.println("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+        System.out.println("| generator | nextInt ns | nextLong ns | nextDouble ns | nextGaussian ns | nextExponential ns | int[] loop GiB/s | double[] loop GiB/s | int[] fill GiB/s | long[] fill GiB/s | float[] fill GiB/s | double[] fill GiB/s | exponential double[] fill GiB/s | exponential float[] fill GiB/s | normal double[] fill GiB/s | normal float[] fill GiB/s |");
+        System.out.println("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
         String java = System.getProperty("java.home") + "/bin/java";
-        for (String name : new String[] {"Tandem", "L64X128MixRandom", "SplittableRandom", "Random"}) {
-            Process p = new ProcessBuilder(java, "-Xmx2g", "-cp", System.getProperty("java.class.path"), "tools/Bench.java", name)
-                    .inheritIO()
-                    .start();
+        String lib = System.getProperty("tandem.native");
+        List<String> names = new ArrayList<>(List.of("Tandem", "L64X128MixRandom", "SplittableRandom", "Random"));
+        if (lib != null) names.add(1, "Tandem libtandem");
+        for (String name : names) {
+            List<String> cmd = new ArrayList<>(List.of(java, "-Xmx2g"));
+            if (name.equals("Tandem libtandem")) cmd.addAll(List.of("--enable-native-access=ALL-UNNAMED", "-Dtandem.native=" + lib));
+            cmd.addAll(List.of("-cp", System.getProperty("java.class.path"), "tools/Bench.java", name));
+            Process p = new ProcessBuilder(cmd).inheritIO().start();
             if (p.waitFor() != 0) throw new IllegalStateException(name + " failed");
         }
     }

@@ -24,7 +24,9 @@ jobs:
           distribution: temurin
           java-version: ${{ matrix.java }}
           cache: maven
-      - run: mvn -B verify
+      # The suite runs in Java and again with the fills in libtandem, built from the pinned tandem-c.
+      - run: bash tools/build_native.sh
+      - run: mvn -B verify -Pnative
   vectors:
     name: vector data and ziggurat tables are current
     runs-on: ubuntu-latest

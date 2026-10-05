@@ -47,7 +47,7 @@
         <version>3.13.0</version>
         <configuration>
           <compilerArgs>
-            <arg>-Xlint:all</arg>
+            <arg>-Xlint:all,-restricted</arg>
           </compilerArgs>
         </configuration>
       </plugin>
@@ -58,4 +58,61 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!-- Runs the suite a second time with the fills in libtandem, which tools/build_native.sh
+         builds into target/native. -->
+    <profile>
+      <id>native</id>
+      <properties>
+        <tandem.native.lib>libtandem.so</tandem.native.lib>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>native-test</id>
+                <goals>
+                  <goal>test</goal>
+                </goals>
+                <configuration>
+                  <reportsDirectory>${project.build.directory}/surefire-reports-native</reportsDirectory>
+                  <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+                  <systemPropertyVariables>
+                    <tandem.native>${project.build.directory}/native/${tandem.native.lib}</tandem.native>
+                  </systemPropertyVariables>
+                </configuration>
+              </execution>
+              <!-- Finds the library on java.library.path instead of by the property. -->
+              <execution>
+                <id>native-path-test</id>
+                <goals>
+                  <goal>test</goal>
+                </goals>
+                <configuration>
+                  <reportsDirectory>${project.build.directory}/surefire-reports-native-path</reportsDirectory>
+                  <test>NativeFillsTest</test>
+                  <argLine>--enable-native-access=ALL-UNNAMED -Djava.library.path=${project.build.directory}/native</argLine>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>native-mac</id>
+      <activation>
+        <os>
+          <family>mac</family>
+        </os>
+      </activation>
+      <properties>
+        <tandem.native.lib>libtandem.dylib</tandem.native.lib>
+      </properties>
+    </profile>
+  </profiles>
 </project>

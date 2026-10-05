@@ -989,6 +989,10 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     /** As {@link #fillGaussian(double[])} on {@code a[off, off + len)}. */
     public void fillGaussian(double[] a, int off, int len) {
         Objects.checkFromIndexSize(off, len, a.length);
+        if (len >= NativeFills.MIN && NativeFills.ENABLED) {
+            NativeFills.fillNormalF64(this, beginFill(64, len), a, off, len);
+            return;
+        }
         long first = align(pos, 64) >>> 6;
         long[] r = new long[Math.min(len, GAUSSIAN_BLOCK)];
         int[] miss = new int[r.length];
@@ -1052,6 +1056,11 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     /** As {@link #fillGaussian(float[])} on {@code a[off, off + len)}. */
     public void fillGaussian(float[] a, int off, int len) {
         Objects.checkFromIndexSize(off, len, a.length);
+        if (len >= NativeFills.MIN && NativeFills.ENABLED) {
+            // An odd length still consumes both uniforms of its last pair.
+            NativeFills.fillNormalF32(this, beginFill(32, (len + 1L) / 2 * 2), a, off, len);
+            return;
+        }
         float[] u = new float[2 * Math.min((len + 1) / 2, GAUSSIAN_BLOCK)];
         for (int i = off, end = off + len; i < end; ) {
             int pairs = Math.min((end - i + 1) / 2, GAUSSIAN_BLOCK);
@@ -1092,6 +1101,10 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     /** As {@link #fillExponential(double[])} on {@code a[off, off + len)}. */
     public void fillExponential(double[] a, int off, int len) {
         Objects.checkFromIndexSize(off, len, a.length);
+        if (len >= NativeFills.MIN && NativeFills.ENABLED) {
+            NativeFills.fillExponentialF64(this, beginFill(64, len), a, off, len);
+            return;
+        }
         // Blocks keep the uniforms in cache for the transform.
         for (int i = off, end = off + len; i < end; ) {
             int m = Math.min(end - i, EXPONENTIAL_BLOCK);
@@ -1108,6 +1121,10 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     /** As {@link #fillExponential(float[])} on {@code a[off, off + len)}. */
     public void fillExponential(float[] a, int off, int len) {
         Objects.checkFromIndexSize(off, len, a.length);
+        if (len >= NativeFills.MIN && NativeFills.ENABLED) {
+            NativeFills.fillExponentialF32(this, beginFill(32, len), a, off, len);
+            return;
+        }
         for (int i = off, end = off + len; i < end; ) {
             int m = Math.min(end - i, EXPONENTIAL_BLOCK);
             fill(a, i, m);
@@ -1170,7 +1187,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
      * Aligns the position to w bits, checks that n elements end below 2^64, moves the position
      * to the end and returns the aligned start. It checks before the caller writes any output.
      */
-    private long beginFill(int w, int n) {
+    private long beginFill(int w, long n) {
         long p = align(pos, w);
         if (Long.compareUnsigned(p, pos) < 0) throw new IllegalStateException("position overflow");
         long end = p + (long) w * n;
@@ -1187,6 +1204,10 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     /** Fills {@code a[off, off + len)} with the same values as repeated {@link #nextInt()}. */
     public void fill(int[] a, int off, int len) {
         Objects.checkFromIndexSize(off, len, a.length);
+        if (len >= NativeFills.MIN && NativeFills.ENABLED) {
+            NativeFills.fillU32(this, beginFill(32, len), a, off, len);
+            return;
+        }
         long p = beginFill(32, len);
         int i = off, end = off + len;
         for (; i < end && (p & 1023) != 0; i++, p += 32) a[i] = word(p);
@@ -1221,6 +1242,10 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     /** Fills {@code a[off, off + len)} with the same values as repeated {@link #nextLong()}. */
     public void fill(long[] a, int off, int len) {
         Objects.checkFromIndexSize(off, len, a.length);
+        if (len >= NativeFills.MIN && NativeFills.ENABLED) {
+            NativeFills.fillU64(this, beginFill(64, len), a, off, len);
+            return;
+        }
         long p = beginFill(64, len);
         int i = off, end = off + len;
         for (; i < end && (p & 1023) != 0; i++, p += 64) a[i] = rawCached(p, 64);
@@ -1250,6 +1275,10 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     /** Fills {@code a[off, off + len)} with the same values as repeated {@link #nextFloat()}. */
     public void fill(float[] a, int off, int len) {
         Objects.checkFromIndexSize(off, len, a.length);
+        if (len >= NativeFills.MIN && NativeFills.ENABLED) {
+            NativeFills.fillF32(this, beginFill(32, len), a, off, len);
+            return;
+        }
         long p = beginFill(32, len);
         int i = off, end = off + len;
         for (; i < end && (p & 1023) != 0; i++, p += 32) a[i] = toFloat(word(p));
@@ -1275,6 +1304,10 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     /** Fills {@code a[off, off + len)} with the same values as repeated {@link #nextDouble()}. */
     public void fill(double[] a, int off, int len) {
         Objects.checkFromIndexSize(off, len, a.length);
+        if (len >= NativeFills.MIN && NativeFills.ENABLED) {
+            NativeFills.fillF64(this, beginFill(64, len), a, off, len);
+            return;
+        }
         long p = beginFill(64, len);
         int i = off, end = off + len;
         for (; i < end && (p & 1023) != 0; i++, p += 64) a[i] = toDouble(rawCached(p, 64));
