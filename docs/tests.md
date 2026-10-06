@@ -16,18 +16,20 @@ cd cuda && pixi run test && pixi run gpu-test    # gpu-test needs a GPU host
 - `NativeFillsTest` checks that every array fill of 512 elements or more, which runs in libtandem
   when it is loaded, equals the same fill in Java pieces in values and end position.
 
-`ConformanceTest` reads the copies in `src/test/resources/conformance`. It checks every case of
+`ConformanceTest` follows `conformance/CHECKLIST.md` at tandem-spec `b31af72` and reads the
+copies in `src/test/resources/conformance`. It checks every case of
 `fill_below.json`, `normal.json`, `exponential.json` and `choice.json` in values and end
 position, bounded fallbacks and normal misses included, and the scalar draws of `below.json` and
 of every normal, exponential and choice case. It checks that a start one draw later shifts the
 fallbacks by one element, the draw width from the range, the seven empty fills, the odd float
 normal fills and the Box-Muller pairs, and that each case cut at elements 1, 7, 20, 21 and
 `n - 1` and filled in pieces equals the whole fill. A float normal fill writes whole pairs, so it
-is cut at even elements only. It builds the alias table of each `vectors.json` choice case and
+is cut at elements 2, 8, 20 and the largest even element below `n`. It builds the alias table of each `vectors.json` choice case and
 compares the capacity, cuts and aliases, and rejects invalid weights. It checks the SHA-256 of
 the 12 stream dumps of `hashes.json`, the hashes of the long normal and exponential dumps, the
 imaginary part of a complex draw across a block boundary, and starts below 2^63 with a draw past
-it. Every value compares bit for bit, the float normals and exponentials too.
+it. The item on a fill that reaches 2^64 does not apply: starts lie below 2^63 and a fill holds
+at most 2^31 elements, so a fill cannot reach 2^64. Every value compares bit for bit, the float normals and exponentials too.
 
 `DerivedTest` checks the bounded draws of the `RandomGenerator` interface against `below.json`,
 and the float normal formula. `ChoiceTest` checks a chi-square statistic of 1e6 choices
@@ -56,7 +58,7 @@ array fills. `NoDriverTest` checks the error without a driver.
 ## Fixtures
 
 `src/test/resources/conformance` holds byte-identical copies of the JSON files in tandem-spec's
-`conformance/` at commit `f420545`. `Vectors.java` is generated from the spec repository's
+`conformance/` at commit `b31af72`. `Vectors.java` is generated from the spec repository's
 `vectors.json` by `tools/gen_vectors.py`. The stream dumps in `src/test/resources/data` are
 byte-identical copies of the dumps in `tandem-c`.
 `cross_fill_below.h` and `cross_fill_normal.h` of `tandem-cuda`, and `cross_normal.h` and
@@ -71,5 +73,5 @@ byte-identical copies of the dumps in `tandem-c`.
   and runs the suite in Java, again with the library named by `tandem.native`, and
   `NativeFillsTest` with it on `java.library.path`.
 - CI fails when `Vectors.java` or `ZigTables.java` differ from the spec's data, when the
-  conformance copies differ from tandem-spec `f420545`, or when the PTX or its fixtures differ
+  conformance copies differ from tandem-spec `b31af72`, or when the PTX or its fixtures differ
   from what the tandem-cuda commit pinned in `cuda/tools/build_ptx.sh` gives.
