@@ -238,9 +238,9 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         for (long r = -8; r < steps; r++) {
             long p0 = (o0 & MASK32) * ((h0 | 1) & MASK32);
             long p1 = (o2 & MASK32) * ((h1 | 1) & MASK32);
-            int n0 = o1 ^ (int) (p1 >>> 32) ^ (int) p1;
+            int n0 = (int) (p1 ^ (p1 >>> 32)) ^ o1;
             int n1 = Integer.rotateLeft((int) p1, 16) ^ h2;
-            int n2 = o3 ^ (int) (p0 >>> 32) ^ (int) p0;
+            int n2 = (int) (p0 ^ (p0 >>> 32)) ^ o3;
             int n3 = Integer.rotateLeft((int) p0, 16) ^ h3;
             h0 ^= Integer.rotateLeft(h1, 7);
             h1 ^= Integer.rotateLeft(h2, 13);
@@ -274,11 +274,13 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         f(s);
     }
 
-    // The lane loops below run two lanes side by side. One lane alone waits on the latency of
-    // its multiply-xor chain. Four lanes need 32 state words and spill out of the AArch64
-    // registers, so C2 code runs half its instructions on the stack. The row loops end on
-    // b != end, which C2 does not count: it unrolls counted loops of many xors twice, and the
-    // unrolled int writer spilled the lane state.
+    // The lane loops below run two lanes side by side and two rows per iteration. One lane
+    // alone waits on the latency of its multiply-xor chain. Four lanes need 32 state words and
+    // spill out of the AArch64 registers. The row loops end on b != end, which C2 does not
+    // count: it unrolls counted loops of many xors twice, and the unrolled loop spilled the lane
+    // state. Two rows per iteration halve the loop overhead of the uncounted loop instead. C2
+    // has no 32 x 32 to 64-bit multiply, so o0 and o2 stay zero-extended in longs, which saves
+    // the zero extension of the fold before the next product. The row count must be even.
 
     /** F on the eight chunks 8g .. 8g + 7 into the lane state arrays. */
     private void seedLanes(int[] o, int[] h, long g) {
@@ -293,13 +295,13 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
                 long p1a = (o2a & MASK32) * ((h1a | 1) & MASK32);
                 long p0b = (o0b & MASK32) * ((h0b | 1) & MASK32);
                 long p1b = (o2b & MASK32) * ((h1b | 1) & MASK32);
-                int n0a = o1a ^ (int) (p1a >>> 32) ^ (int) p1a;
+                int n0a = (int) (p1a ^ (p1a >>> 32)) ^ o1a;
                 int n1a = Integer.rotateLeft((int) p1a, 16) ^ h2a;
-                int n2a = o3a ^ (int) (p0a >>> 32) ^ (int) p0a;
+                int n2a = (int) (p0a ^ (p0a >>> 32)) ^ o3a;
                 int n3a = Integer.rotateLeft((int) p0a, 16) ^ h3a;
-                int n0b = o1b ^ (int) (p1b >>> 32) ^ (int) p1b;
+                int n0b = (int) (p1b ^ (p1b >>> 32)) ^ o1b;
                 int n1b = Integer.rotateLeft((int) p1b, 16) ^ h2b;
-                int n2b = o3b ^ (int) (p0b >>> 32) ^ (int) p0b;
+                int n2b = (int) (p0b ^ (p0b >>> 32)) ^ o3b;
                 int n3b = Integer.rotateLeft((int) p0b, 16) ^ h3b;
                 h0a ^= Integer.rotateLeft(h1a, 7);
                 h1a ^= Integer.rotateLeft(h2a, 13);
@@ -325,48 +327,76 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     }
 
     /**
-     * Steps every lane {@code rows} times and writes the exposed halves to {@code buf} in
-     * stream order, two words per long: row j, lane l at {@code 16 j + 2 l} and the next long.
+     * Steps every lane {@code rows} times, an even number, and writes the exposed halves to
+     * {@code buf} in stream order, two words per long: row j, lane l at {@code 16 j + 2 l} and
+     * the next long.
      */
     private static void generate(int[] o, int[] h, long[] buf, int off, int rows) {
         for (int l = 0; l < 8; l += 2) {
-            int o0a = o[4 * l], o1a = o[4 * l + 1], o2a = o[4 * l + 2], o3a = o[4 * l + 3];
+            long o0a = o[4 * l] & MASK32, o2a = o[4 * l + 2] & MASK32;
+            int o1a = o[4 * l + 1], o3a = o[4 * l + 3];
             int h0a = h[4 * l], h1a = h[4 * l + 1], h2a = h[4 * l + 2], h3a = h[4 * l + 3];
-            int o0b = o[4 * l + 4], o1b = o[4 * l + 5], o2b = o[4 * l + 6], o3b = o[4 * l + 7];
+            long o0b = o[4 * l + 4] & MASK32, o2b = o[4 * l + 6] & MASK32;
+            int o1b = o[4 * l + 5], o3b = o[4 * l + 7];
             int h0b = h[4 * l + 4], h1b = h[4 * l + 5], h2b = h[4 * l + 6], h3b = h[4 * l + 7];
-            for (int b = off + 2 * l, end = b + 16 * rows; b != end; b += 16) {
-                long p0a = (o0a & MASK32) * ((h0a | 1) & MASK32);
-                long p1a = (o2a & MASK32) * ((h1a | 1) & MASK32);
-                long p0b = (o0b & MASK32) * ((h0b | 1) & MASK32);
-                long p1b = (o2b & MASK32) * ((h1b | 1) & MASK32);
-                int n0a = o1a ^ (int) (p1a >>> 32) ^ (int) p1a;
-                int n1a = Integer.rotateLeft((int) p1a, 16) ^ h2a;
-                int n2a = o3a ^ (int) (p0a >>> 32) ^ (int) p0a;
-                int n3a = Integer.rotateLeft((int) p0a, 16) ^ h3a;
-                int n0b = o1b ^ (int) (p1b >>> 32) ^ (int) p1b;
-                int n1b = Integer.rotateLeft((int) p1b, 16) ^ h2b;
-                int n2b = o3b ^ (int) (p0b >>> 32) ^ (int) p0b;
-                int n3b = Integer.rotateLeft((int) p0b, 16) ^ h3b;
+            for (int b = off + 2 * l, end = b + 16 * rows; b != end; b += 32) {
+                long p0, p1;
+                p0 = o0a * ((h0a | 1) & MASK32);
+                p1 = o2a * ((h1a | 1) & MASK32);
+                o0a = ((int) (p1 ^ (p1 >>> 32)) ^ o1a) & MASK32;
+                o1a = Integer.rotateLeft((int) p1, 16) ^ h2a;
+                o2a = ((int) (p0 ^ (p0 >>> 32)) ^ o3a) & MASK32;
+                o3a = Integer.rotateLeft((int) p0, 16) ^ h3a;
                 h0a ^= Integer.rotateLeft(h1a, 7);
                 h1a ^= Integer.rotateLeft(h2a, 13);
                 h2a ^= Integer.rotateLeft(h3a, 22);
                 h3a ^= Integer.rotateLeft(h0a, 3);
-                h0a = (h0a + CLOCK_WEYL) ^ n0a;
-                o0a = n0a; o1a = n1a; o2a = n2a; o3a = n3a;
+                h0a = (h0a + CLOCK_WEYL) ^ (int) o0a;
+                p0 = o0b * ((h0b | 1) & MASK32);
+                p1 = o2b * ((h1b | 1) & MASK32);
+                o0b = ((int) (p1 ^ (p1 >>> 32)) ^ o1b) & MASK32;
+                o1b = Integer.rotateLeft((int) p1, 16) ^ h2b;
+                o2b = ((int) (p0 ^ (p0 >>> 32)) ^ o3b) & MASK32;
+                o3b = Integer.rotateLeft((int) p0, 16) ^ h3b;
                 h0b ^= Integer.rotateLeft(h1b, 7);
                 h1b ^= Integer.rotateLeft(h2b, 13);
                 h2b ^= Integer.rotateLeft(h3b, 22);
                 h3b ^= Integer.rotateLeft(h0b, 3);
-                h0b = (h0b + CLOCK_WEYL) ^ n0b;
-                o0b = n0b; o1b = n1b; o2b = n2b; o3b = n3b;
-                buf[b] = (o0a & MASK32) | ((long) o1a << 32);
-                buf[b + 1] = (o2a & MASK32) | ((long) o3a << 32);
-                buf[b + 2] = (o0b & MASK32) | ((long) o1b << 32);
-                buf[b + 3] = (o2b & MASK32) | ((long) o3b << 32);
+                h0b = (h0b + CLOCK_WEYL) ^ (int) o0b;
+                buf[b] = o0a | ((long) o1a << 32);
+                buf[b + 1] = o2a | ((long) o3a << 32);
+                buf[b + 2] = o0b | ((long) o1b << 32);
+                buf[b + 3] = o2b | ((long) o3b << 32);
+                p0 = o0a * ((h0a | 1) & MASK32);
+                p1 = o2a * ((h1a | 1) & MASK32);
+                o0a = ((int) (p1 ^ (p1 >>> 32)) ^ o1a) & MASK32;
+                o1a = Integer.rotateLeft((int) p1, 16) ^ h2a;
+                o2a = ((int) (p0 ^ (p0 >>> 32)) ^ o3a) & MASK32;
+                o3a = Integer.rotateLeft((int) p0, 16) ^ h3a;
+                h0a ^= Integer.rotateLeft(h1a, 7);
+                h1a ^= Integer.rotateLeft(h2a, 13);
+                h2a ^= Integer.rotateLeft(h3a, 22);
+                h3a ^= Integer.rotateLeft(h0a, 3);
+                h0a = (h0a + CLOCK_WEYL) ^ (int) o0a;
+                p0 = o0b * ((h0b | 1) & MASK32);
+                p1 = o2b * ((h1b | 1) & MASK32);
+                o0b = ((int) (p1 ^ (p1 >>> 32)) ^ o1b) & MASK32;
+                o1b = Integer.rotateLeft((int) p1, 16) ^ h2b;
+                o2b = ((int) (p0 ^ (p0 >>> 32)) ^ o3b) & MASK32;
+                o3b = Integer.rotateLeft((int) p0, 16) ^ h3b;
+                h0b ^= Integer.rotateLeft(h1b, 7);
+                h1b ^= Integer.rotateLeft(h2b, 13);
+                h2b ^= Integer.rotateLeft(h3b, 22);
+                h3b ^= Integer.rotateLeft(h0b, 3);
+                h0b = (h0b + CLOCK_WEYL) ^ (int) o0b;
+                buf[b + 16] = o0a | ((long) o1a << 32);
+                buf[b + 17] = o2a | ((long) o3a << 32);
+                buf[b + 18] = o0b | ((long) o1b << 32);
+                buf[b + 19] = o2b | ((long) o3b << 32);
             }
-            o[4 * l] = o0a; o[4 * l + 1] = o1a; o[4 * l + 2] = o2a; o[4 * l + 3] = o3a;
+            o[4 * l] = (int) o0a; o[4 * l + 1] = o1a; o[4 * l + 2] = (int) o2a; o[4 * l + 3] = o3a;
             h[4 * l] = h0a; h[4 * l + 1] = h1a; h[4 * l + 2] = h2a; h[4 * l + 3] = h3a;
-            o[4 * l + 4] = o0b; o[4 * l + 5] = o1b; o[4 * l + 6] = o2b; o[4 * l + 7] = o3b;
+            o[4 * l + 4] = (int) o0b; o[4 * l + 5] = o1b; o[4 * l + 6] = (int) o2b; o[4 * l + 7] = o3b;
             h[4 * l + 4] = h0b; h[4 * l + 5] = h1b; h[4 * l + 6] = h2b; h[4 * l + 7] = h3b;
         }
     }
@@ -374,43 +404,70 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     /** As {@link #generate}, converting each long to a double as {@link #nextDouble()} does. */
     private static void generateDouble(int[] o, int[] h, double[] buf, int off, int rows) {
         for (int l = 0; l < 8; l += 2) {
-            int o0a = o[4 * l], o1a = o[4 * l + 1], o2a = o[4 * l + 2], o3a = o[4 * l + 3];
+            long o0a = o[4 * l] & MASK32, o2a = o[4 * l + 2] & MASK32;
+            int o1a = o[4 * l + 1], o3a = o[4 * l + 3];
             int h0a = h[4 * l], h1a = h[4 * l + 1], h2a = h[4 * l + 2], h3a = h[4 * l + 3];
-            int o0b = o[4 * l + 4], o1b = o[4 * l + 5], o2b = o[4 * l + 6], o3b = o[4 * l + 7];
+            long o0b = o[4 * l + 4] & MASK32, o2b = o[4 * l + 6] & MASK32;
+            int o1b = o[4 * l + 5], o3b = o[4 * l + 7];
             int h0b = h[4 * l + 4], h1b = h[4 * l + 5], h2b = h[4 * l + 6], h3b = h[4 * l + 7];
-            for (int b = off + 2 * l, end = b + 16 * rows; b != end; b += 16) {
-                long p0a = (o0a & MASK32) * ((h0a | 1) & MASK32);
-                long p1a = (o2a & MASK32) * ((h1a | 1) & MASK32);
-                long p0b = (o0b & MASK32) * ((h0b | 1) & MASK32);
-                long p1b = (o2b & MASK32) * ((h1b | 1) & MASK32);
-                int n0a = o1a ^ (int) (p1a >>> 32) ^ (int) p1a;
-                int n1a = Integer.rotateLeft((int) p1a, 16) ^ h2a;
-                int n2a = o3a ^ (int) (p0a >>> 32) ^ (int) p0a;
-                int n3a = Integer.rotateLeft((int) p0a, 16) ^ h3a;
-                int n0b = o1b ^ (int) (p1b >>> 32) ^ (int) p1b;
-                int n1b = Integer.rotateLeft((int) p1b, 16) ^ h2b;
-                int n2b = o3b ^ (int) (p0b >>> 32) ^ (int) p0b;
-                int n3b = Integer.rotateLeft((int) p0b, 16) ^ h3b;
+            for (int b = off + 2 * l, end = b + 16 * rows; b != end; b += 32) {
+                long p0, p1;
+                p0 = o0a * ((h0a | 1) & MASK32);
+                p1 = o2a * ((h1a | 1) & MASK32);
+                o0a = ((int) (p1 ^ (p1 >>> 32)) ^ o1a) & MASK32;
+                o1a = Integer.rotateLeft((int) p1, 16) ^ h2a;
+                o2a = ((int) (p0 ^ (p0 >>> 32)) ^ o3a) & MASK32;
+                o3a = Integer.rotateLeft((int) p0, 16) ^ h3a;
                 h0a ^= Integer.rotateLeft(h1a, 7);
                 h1a ^= Integer.rotateLeft(h2a, 13);
                 h2a ^= Integer.rotateLeft(h3a, 22);
                 h3a ^= Integer.rotateLeft(h0a, 3);
-                h0a = (h0a + CLOCK_WEYL) ^ n0a;
-                o0a = n0a; o1a = n1a; o2a = n2a; o3a = n3a;
+                h0a = (h0a + CLOCK_WEYL) ^ (int) o0a;
+                p0 = o0b * ((h0b | 1) & MASK32);
+                p1 = o2b * ((h1b | 1) & MASK32);
+                o0b = ((int) (p1 ^ (p1 >>> 32)) ^ o1b) & MASK32;
+                o1b = Integer.rotateLeft((int) p1, 16) ^ h2b;
+                o2b = ((int) (p0 ^ (p0 >>> 32)) ^ o3b) & MASK32;
+                o3b = Integer.rotateLeft((int) p0, 16) ^ h3b;
                 h0b ^= Integer.rotateLeft(h1b, 7);
                 h1b ^= Integer.rotateLeft(h2b, 13);
                 h2b ^= Integer.rotateLeft(h3b, 22);
                 h3b ^= Integer.rotateLeft(h0b, 3);
-                h0b = (h0b + CLOCK_WEYL) ^ n0b;
-                o0b = n0b; o1b = n1b; o2b = n2b; o3b = n3b;
-                buf[b] = toDouble(o0a, o1a);
-                buf[b + 1] = toDouble(o2a, o3a);
-                buf[b + 2] = toDouble(o0b, o1b);
-                buf[b + 3] = toDouble(o2b, o3b);
+                h0b = (h0b + CLOCK_WEYL) ^ (int) o0b;
+                buf[b] = toDouble((int) o0a, o1a);
+                buf[b + 1] = toDouble((int) o2a, o3a);
+                buf[b + 2] = toDouble((int) o0b, o1b);
+                buf[b + 3] = toDouble((int) o2b, o3b);
+                p0 = o0a * ((h0a | 1) & MASK32);
+                p1 = o2a * ((h1a | 1) & MASK32);
+                o0a = ((int) (p1 ^ (p1 >>> 32)) ^ o1a) & MASK32;
+                o1a = Integer.rotateLeft((int) p1, 16) ^ h2a;
+                o2a = ((int) (p0 ^ (p0 >>> 32)) ^ o3a) & MASK32;
+                o3a = Integer.rotateLeft((int) p0, 16) ^ h3a;
+                h0a ^= Integer.rotateLeft(h1a, 7);
+                h1a ^= Integer.rotateLeft(h2a, 13);
+                h2a ^= Integer.rotateLeft(h3a, 22);
+                h3a ^= Integer.rotateLeft(h0a, 3);
+                h0a = (h0a + CLOCK_WEYL) ^ (int) o0a;
+                p0 = o0b * ((h0b | 1) & MASK32);
+                p1 = o2b * ((h1b | 1) & MASK32);
+                o0b = ((int) (p1 ^ (p1 >>> 32)) ^ o1b) & MASK32;
+                o1b = Integer.rotateLeft((int) p1, 16) ^ h2b;
+                o2b = ((int) (p0 ^ (p0 >>> 32)) ^ o3b) & MASK32;
+                o3b = Integer.rotateLeft((int) p0, 16) ^ h3b;
+                h0b ^= Integer.rotateLeft(h1b, 7);
+                h1b ^= Integer.rotateLeft(h2b, 13);
+                h2b ^= Integer.rotateLeft(h3b, 22);
+                h3b ^= Integer.rotateLeft(h0b, 3);
+                h0b = (h0b + CLOCK_WEYL) ^ (int) o0b;
+                buf[b + 16] = toDouble((int) o0a, o1a);
+                buf[b + 17] = toDouble((int) o2a, o3a);
+                buf[b + 18] = toDouble((int) o0b, o1b);
+                buf[b + 19] = toDouble((int) o2b, o3b);
             }
-            o[4 * l] = o0a; o[4 * l + 1] = o1a; o[4 * l + 2] = o2a; o[4 * l + 3] = o3a;
+            o[4 * l] = (int) o0a; o[4 * l + 1] = o1a; o[4 * l + 2] = (int) o2a; o[4 * l + 3] = o3a;
             h[4 * l] = h0a; h[4 * l + 1] = h1a; h[4 * l + 2] = h2a; h[4 * l + 3] = h3a;
-            o[4 * l + 4] = o0b; o[4 * l + 5] = o1b; o[4 * l + 6] = o2b; o[4 * l + 7] = o3b;
+            o[4 * l + 4] = (int) o0b; o[4 * l + 5] = o1b; o[4 * l + 6] = (int) o2b; o[4 * l + 7] = o3b;
             h[4 * l + 4] = h0b; h[4 * l + 5] = h1b; h[4 * l + 6] = h2b; h[4 * l + 7] = h3b;
         }
     }
@@ -418,47 +475,157 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
     /** As {@link #generate}, one word per int: row j, lane l at {@code 32 j + 4 l} to {@code 32 j + 4 l + 3}. */
     private static void generateInt(int[] o, int[] h, int[] buf, int off, int rows) {
         for (int l = 0; l < 8; l += 2) {
-            int o0a = o[4 * l], o1a = o[4 * l + 1], o2a = o[4 * l + 2], o3a = o[4 * l + 3];
+            long o0a = o[4 * l] & MASK32, o2a = o[4 * l + 2] & MASK32;
+            int o1a = o[4 * l + 1], o3a = o[4 * l + 3];
             int h0a = h[4 * l], h1a = h[4 * l + 1], h2a = h[4 * l + 2], h3a = h[4 * l + 3];
-            int o0b = o[4 * l + 4], o1b = o[4 * l + 5], o2b = o[4 * l + 6], o3b = o[4 * l + 7];
+            long o0b = o[4 * l + 4] & MASK32, o2b = o[4 * l + 6] & MASK32;
+            int o1b = o[4 * l + 5], o3b = o[4 * l + 7];
             int h0b = h[4 * l + 4], h1b = h[4 * l + 5], h2b = h[4 * l + 6], h3b = h[4 * l + 7];
-            for (int b = off + 4 * l, end = b + 32 * rows; b != end; b += 32) {
-                long p0a = (o0a & MASK32) * ((h0a | 1) & MASK32);
-                long p1a = (o2a & MASK32) * ((h1a | 1) & MASK32);
-                long p0b = (o0b & MASK32) * ((h0b | 1) & MASK32);
-                long p1b = (o2b & MASK32) * ((h1b | 1) & MASK32);
-                int n0a = o1a ^ (int) (p1a >>> 32) ^ (int) p1a;
-                int n1a = Integer.rotateLeft((int) p1a, 16) ^ h2a;
-                int n2a = o3a ^ (int) (p0a >>> 32) ^ (int) p0a;
-                int n3a = Integer.rotateLeft((int) p0a, 16) ^ h3a;
-                int n0b = o1b ^ (int) (p1b >>> 32) ^ (int) p1b;
-                int n1b = Integer.rotateLeft((int) p1b, 16) ^ h2b;
-                int n2b = o3b ^ (int) (p0b >>> 32) ^ (int) p0b;
-                int n3b = Integer.rotateLeft((int) p0b, 16) ^ h3b;
+            for (int b = off + 4 * l, end = b + 32 * rows; b != end; b += 64) {
+                long p0, p1;
+                p0 = o0a * ((h0a | 1) & MASK32);
+                p1 = o2a * ((h1a | 1) & MASK32);
+                o0a = ((int) (p1 ^ (p1 >>> 32)) ^ o1a) & MASK32;
+                o1a = Integer.rotateLeft((int) p1, 16) ^ h2a;
+                o2a = ((int) (p0 ^ (p0 >>> 32)) ^ o3a) & MASK32;
+                o3a = Integer.rotateLeft((int) p0, 16) ^ h3a;
                 h0a ^= Integer.rotateLeft(h1a, 7);
                 h1a ^= Integer.rotateLeft(h2a, 13);
                 h2a ^= Integer.rotateLeft(h3a, 22);
                 h3a ^= Integer.rotateLeft(h0a, 3);
-                h0a = (h0a + CLOCK_WEYL) ^ n0a;
-                o0a = n0a; o1a = n1a; o2a = n2a; o3a = n3a;
-                buf[b] = n0a;
-                buf[b + 1] = n1a;
-                buf[b + 2] = n2a;
-                buf[b + 3] = n3a;
+                h0a = (h0a + CLOCK_WEYL) ^ (int) o0a;
+                p0 = o0b * ((h0b | 1) & MASK32);
+                p1 = o2b * ((h1b | 1) & MASK32);
+                o0b = ((int) (p1 ^ (p1 >>> 32)) ^ o1b) & MASK32;
+                o1b = Integer.rotateLeft((int) p1, 16) ^ h2b;
+                o2b = ((int) (p0 ^ (p0 >>> 32)) ^ o3b) & MASK32;
+                o3b = Integer.rotateLeft((int) p0, 16) ^ h3b;
                 h0b ^= Integer.rotateLeft(h1b, 7);
                 h1b ^= Integer.rotateLeft(h2b, 13);
                 h2b ^= Integer.rotateLeft(h3b, 22);
                 h3b ^= Integer.rotateLeft(h0b, 3);
-                h0b = (h0b + CLOCK_WEYL) ^ n0b;
-                o0b = n0b; o1b = n1b; o2b = n2b; o3b = n3b;
-                buf[b + 4] = o0b;
+                h0b = (h0b + CLOCK_WEYL) ^ (int) o0b;
+                buf[b] = (int) o0a;
+                buf[b + 1] = o1a;
+                buf[b + 2] = (int) o2a;
+                buf[b + 3] = o3a;
+                buf[b + 4] = (int) o0b;
                 buf[b + 5] = o1b;
-                buf[b + 6] = o2b;
+                buf[b + 6] = (int) o2b;
                 buf[b + 7] = o3b;
+                p0 = o0a * ((h0a | 1) & MASK32);
+                p1 = o2a * ((h1a | 1) & MASK32);
+                o0a = ((int) (p1 ^ (p1 >>> 32)) ^ o1a) & MASK32;
+                o1a = Integer.rotateLeft((int) p1, 16) ^ h2a;
+                o2a = ((int) (p0 ^ (p0 >>> 32)) ^ o3a) & MASK32;
+                o3a = Integer.rotateLeft((int) p0, 16) ^ h3a;
+                h0a ^= Integer.rotateLeft(h1a, 7);
+                h1a ^= Integer.rotateLeft(h2a, 13);
+                h2a ^= Integer.rotateLeft(h3a, 22);
+                h3a ^= Integer.rotateLeft(h0a, 3);
+                h0a = (h0a + CLOCK_WEYL) ^ (int) o0a;
+                p0 = o0b * ((h0b | 1) & MASK32);
+                p1 = o2b * ((h1b | 1) & MASK32);
+                o0b = ((int) (p1 ^ (p1 >>> 32)) ^ o1b) & MASK32;
+                o1b = Integer.rotateLeft((int) p1, 16) ^ h2b;
+                o2b = ((int) (p0 ^ (p0 >>> 32)) ^ o3b) & MASK32;
+                o3b = Integer.rotateLeft((int) p0, 16) ^ h3b;
+                h0b ^= Integer.rotateLeft(h1b, 7);
+                h1b ^= Integer.rotateLeft(h2b, 13);
+                h2b ^= Integer.rotateLeft(h3b, 22);
+                h3b ^= Integer.rotateLeft(h0b, 3);
+                h0b = (h0b + CLOCK_WEYL) ^ (int) o0b;
+                buf[b + 32] = (int) o0a;
+                buf[b + 33] = o1a;
+                buf[b + 34] = (int) o2a;
+                buf[b + 35] = o3a;
+                buf[b + 36] = (int) o0b;
+                buf[b + 37] = o1b;
+                buf[b + 38] = (int) o2b;
+                buf[b + 39] = o3b;
             }
-            o[4 * l] = o0a; o[4 * l + 1] = o1a; o[4 * l + 2] = o2a; o[4 * l + 3] = o3a;
+            o[4 * l] = (int) o0a; o[4 * l + 1] = o1a; o[4 * l + 2] = (int) o2a; o[4 * l + 3] = o3a;
             h[4 * l] = h0a; h[4 * l + 1] = h1a; h[4 * l + 2] = h2a; h[4 * l + 3] = h3a;
-            o[4 * l + 4] = o0b; o[4 * l + 5] = o1b; o[4 * l + 6] = o2b; o[4 * l + 7] = o3b;
+            o[4 * l + 4] = (int) o0b; o[4 * l + 5] = o1b; o[4 * l + 6] = (int) o2b; o[4 * l + 7] = o3b;
+            h[4 * l + 4] = h0b; h[4 * l + 5] = h1b; h[4 * l + 6] = h2b; h[4 * l + 7] = h3b;
+        }
+    }
+
+    /** As {@link #generateInt}, converting each word to a float as {@link #nextFloat()} does. */
+    private static void generateFloat(int[] o, int[] h, float[] buf, int off, int rows) {
+        for (int l = 0; l < 8; l += 2) {
+            long o0a = o[4 * l] & MASK32, o2a = o[4 * l + 2] & MASK32;
+            int o1a = o[4 * l + 1], o3a = o[4 * l + 3];
+            int h0a = h[4 * l], h1a = h[4 * l + 1], h2a = h[4 * l + 2], h3a = h[4 * l + 3];
+            long o0b = o[4 * l + 4] & MASK32, o2b = o[4 * l + 6] & MASK32;
+            int o1b = o[4 * l + 5], o3b = o[4 * l + 7];
+            int h0b = h[4 * l + 4], h1b = h[4 * l + 5], h2b = h[4 * l + 6], h3b = h[4 * l + 7];
+            for (int b = off + 4 * l, end = b + 32 * rows; b != end; b += 64) {
+                long p0, p1;
+                p0 = o0a * ((h0a | 1) & MASK32);
+                p1 = o2a * ((h1a | 1) & MASK32);
+                o0a = ((int) (p1 ^ (p1 >>> 32)) ^ o1a) & MASK32;
+                o1a = Integer.rotateLeft((int) p1, 16) ^ h2a;
+                o2a = ((int) (p0 ^ (p0 >>> 32)) ^ o3a) & MASK32;
+                o3a = Integer.rotateLeft((int) p0, 16) ^ h3a;
+                h0a ^= Integer.rotateLeft(h1a, 7);
+                h1a ^= Integer.rotateLeft(h2a, 13);
+                h2a ^= Integer.rotateLeft(h3a, 22);
+                h3a ^= Integer.rotateLeft(h0a, 3);
+                h0a = (h0a + CLOCK_WEYL) ^ (int) o0a;
+                p0 = o0b * ((h0b | 1) & MASK32);
+                p1 = o2b * ((h1b | 1) & MASK32);
+                o0b = ((int) (p1 ^ (p1 >>> 32)) ^ o1b) & MASK32;
+                o1b = Integer.rotateLeft((int) p1, 16) ^ h2b;
+                o2b = ((int) (p0 ^ (p0 >>> 32)) ^ o3b) & MASK32;
+                o3b = Integer.rotateLeft((int) p0, 16) ^ h3b;
+                h0b ^= Integer.rotateLeft(h1b, 7);
+                h1b ^= Integer.rotateLeft(h2b, 13);
+                h2b ^= Integer.rotateLeft(h3b, 22);
+                h3b ^= Integer.rotateLeft(h0b, 3);
+                h0b = (h0b + CLOCK_WEYL) ^ (int) o0b;
+                buf[b] = toFloat((int) o0a);
+                buf[b + 1] = toFloat(o1a);
+                buf[b + 2] = toFloat((int) o2a);
+                buf[b + 3] = toFloat(o3a);
+                buf[b + 4] = toFloat((int) o0b);
+                buf[b + 5] = toFloat(o1b);
+                buf[b + 6] = toFloat((int) o2b);
+                buf[b + 7] = toFloat(o3b);
+                p0 = o0a * ((h0a | 1) & MASK32);
+                p1 = o2a * ((h1a | 1) & MASK32);
+                o0a = ((int) (p1 ^ (p1 >>> 32)) ^ o1a) & MASK32;
+                o1a = Integer.rotateLeft((int) p1, 16) ^ h2a;
+                o2a = ((int) (p0 ^ (p0 >>> 32)) ^ o3a) & MASK32;
+                o3a = Integer.rotateLeft((int) p0, 16) ^ h3a;
+                h0a ^= Integer.rotateLeft(h1a, 7);
+                h1a ^= Integer.rotateLeft(h2a, 13);
+                h2a ^= Integer.rotateLeft(h3a, 22);
+                h3a ^= Integer.rotateLeft(h0a, 3);
+                h0a = (h0a + CLOCK_WEYL) ^ (int) o0a;
+                p0 = o0b * ((h0b | 1) & MASK32);
+                p1 = o2b * ((h1b | 1) & MASK32);
+                o0b = ((int) (p1 ^ (p1 >>> 32)) ^ o1b) & MASK32;
+                o1b = Integer.rotateLeft((int) p1, 16) ^ h2b;
+                o2b = ((int) (p0 ^ (p0 >>> 32)) ^ o3b) & MASK32;
+                o3b = Integer.rotateLeft((int) p0, 16) ^ h3b;
+                h0b ^= Integer.rotateLeft(h1b, 7);
+                h1b ^= Integer.rotateLeft(h2b, 13);
+                h2b ^= Integer.rotateLeft(h3b, 22);
+                h3b ^= Integer.rotateLeft(h0b, 3);
+                h0b = (h0b + CLOCK_WEYL) ^ (int) o0b;
+                buf[b + 32] = toFloat((int) o0a);
+                buf[b + 33] = toFloat(o1a);
+                buf[b + 34] = toFloat((int) o2a);
+                buf[b + 35] = toFloat(o3a);
+                buf[b + 36] = toFloat((int) o0b);
+                buf[b + 37] = toFloat(o1b);
+                buf[b + 38] = toFloat((int) o2b);
+                buf[b + 39] = toFloat(o3b);
+            }
+            o[4 * l] = (int) o0a; o[4 * l + 1] = o1a; o[4 * l + 2] = (int) o2a; o[4 * l + 3] = o3a;
+            h[4 * l] = h0a; h[4 * l + 1] = h1a; h[4 * l + 2] = h2a; h[4 * l + 3] = h3a;
+            o[4 * l + 4] = (int) o0b; o[4 * l + 5] = o1b; o[4 * l + 6] = (int) o2b; o[4 * l + 7] = o3b;
             h[4 * l + 4] = h0b; h[4 * l + 5] = h1b; h[4 * l + 6] = h2b; h[4 * l + 7] = h3b;
         }
     }
@@ -483,8 +650,10 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         int rows = Math.min(chunk, BLOCK_ROWS);
         long rb = r & -(long) rows;
         Cache c = blockState(rb, rows);
-        generate(c.o, c.h, c.buf, 0, rows);
-        c.next += rows;
+        // The kernel steps an even number of rows: at K = 1 the second row is spare.
+        int steps = (rows + 1) & -2;
+        generate(c.o, c.h, c.buf, 0, steps);
+        c.next += steps;
         c.start = rb;
         c.count = rows;
         fb = c.buf;
@@ -1213,7 +1382,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         for (; i < end && (p & 1023) != 0; i++, p += 32) a[i] = word(p);
         while (end - i >= 32) {
             int br = Math.min(chunk, BLOCK_ROWS);
-            if ((p >>> 10 & (br - 1)) == 0 && end - i >= br << 5) {
+            if (br > 1 && (p >>> 10 & (br - 1)) == 0 && end - i >= br << 5) {
                 Cache c = blockState(p >>> 10, br);
                 generateInt(c.o, c.h, a, i, br);
                 c.next += br;
@@ -1251,7 +1420,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         for (; i < end && (p & 1023) != 0; i++, p += 64) a[i] = rawCached(p, 64);
         while (end - i >= 16) {
             int br = Math.min(chunk, BLOCK_ROWS);
-            if ((p >>> 10 & (br - 1)) == 0 && end - i >= br << 4) {
+            if (br > 1 && (p >>> 10 & (br - 1)) == 0 && end - i >= br << 4) {
                 Cache c = blockState(p >>> 10, br);
                 generate(c.o, c.h, a, i, br);
                 c.next += br;
@@ -1283,6 +1452,15 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         int i = off, end = off + len;
         for (; i < end && (p & 1023) != 0; i++, p += 32) a[i] = toFloat(word(p));
         while (end - i >= 32) {
+            int br = Math.min(chunk, BLOCK_ROWS);
+            if (br > 1 && (p >>> 10 & (br - 1)) == 0 && end - i >= br << 5) {
+                Cache c = blockState(p >>> 10, br);
+                generateFloat(c.o, c.h, a, i, br);
+                c.next += br;
+                i += br << 5;
+                p += (long) br << 10;
+                continue;
+            }
             int base = locate(p), rows = Math.min(cache.count - (base >> 4), (end - i) >> 5);
             long[] x = cache.buf;
             for (int k = 0, n = rows << 4; k < n; k++) {
@@ -1313,7 +1491,7 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
         for (; i < end && (p & 1023) != 0; i++, p += 64) a[i] = toDouble(rawCached(p, 64));
         while (end - i >= 16) {
             int br = Math.min(chunk, BLOCK_ROWS);
-            if ((p >>> 10 & (br - 1)) == 0 && end - i >= br << 4) {
+            if (br > 1 && (p >>> 10 & (br - 1)) == 0 && end - i >= br << 4) {
                 Cache c = blockState(p >>> 10, br);
                 generateDouble(c.o, c.h, a, i, br);
                 c.next += br;

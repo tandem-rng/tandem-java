@@ -44,6 +44,30 @@ class StreamsTest {
         checkInts(keyed(8), want);
     }
 
+    /** The row kernels step two rows at a time, so K = 1 steps a spare row. Random access steps one lane alone. */
+    @Test
+    void shortChunksMatchRandomAccess() {
+        for (int k : new int[] {1, 2}) {
+            Tandem g = keyed(k), draws = g.copy();
+            int n = 3000;
+            long[] longs = new long[n];
+            int[] ints = new int[n];
+            double[] doubles = new double[n];
+            float[] floats = new float[n];
+            g.copy().fill(longs);
+            g.copy().fill(ints);
+            g.copy().fill(doubles);
+            g.copy().fill(floats);
+            for (int i = 0; i < n; i++) {
+                assertEquals(g.atLong(i), longs[i], "K " + k + " long " + i);
+                assertEquals(g.atInt(i), ints[i], "K " + k + " int " + i);
+                assertEquals(g.atDouble(i), doubles[i], "K " + k + " double " + i);
+                assertEquals(g.atFloat(i), floats[i], "K " + k + " float " + i);
+                assertEquals(longs[i], draws.nextLong(), "K " + k + " draw " + i);
+            }
+        }
+    }
+
     private static void checkInts(Tandem g, int[] want) {
         int[] got = new int[want.length];
         Tandem fill = g.copy(), draws = g.copy(), access = g.copy();
