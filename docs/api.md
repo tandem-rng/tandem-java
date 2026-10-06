@@ -31,6 +31,8 @@ double y = rng.atDouble(1000);                 // element 1000 of the fill from 
   `fillGaussian(double[] | float[])`. They are bit identical to `tandem-c`.
 - Exponentials: `nextExponential`, `nextExponentialFloat`, `fillExponential`.
   They are bit identical to `tandem-c` and `tandem-cuda`.
+- Weighted choice: `new ChoiceTable(double[] weights)`, `nextChoice(table)`,
+  `fillChoice(int[], table)`. The table and the indices are bit identical to `tandem-c`.
 - `java.util.random.RandomGenerator.SplittableGenerator`, so it drives `ints()`, `doubles()`,
   `splits()` and `Collections.shuffle`.
 - `TandemProvider` for Apache Commons RNG. Add `commons-rng-client-api` to use it.
@@ -82,6 +84,14 @@ double y = rng.atDouble(1000);                 // element 1000 of the fill from 
   the aligned start position over the width in bits plus i, so chunked fills equal whole fills.
   Scalar `nextInt(bound)` stays the sequential rejection loop, so after a rejection the two
   differ.
+- Weighted choice follows Appendix C of the specification. `ChoiceTable` builds Walker's alias
+  table from `m >= 1` double weights in exact integers and consumes no draws. It throws
+  `IllegalArgumentException` for a negative, infinite or NaN weight, or when no weight is
+  positive. `nextChoice(table)` maps one `nextLong()` draw to an index in `[0, m)`, with no
+  retry. Element `i` of `fillChoice(int[], table)`, with an `(a, off, len, table)` form, maps
+  draw `i` of `fill(long[])`, so a fill equals the scalar draws and cuts anywhere. An empty fill
+  aligns the position to 64 bits. `capacity()`, `cut()` and `alias()` return the table, the
+  capacity and cuts as unsigned 64-bit values. A table is immutable and threads may share it.
 - Draw width of bounded draws (Appendix A of the specification): an interface typed by result or
   bounds takes the width from the range, 32 bits when the range is at most 2^32 and 64 bits
   above, whatever the result type. So `nextLong(1000)` equals `nextInt(1000)` on the same stream,
@@ -114,6 +124,9 @@ More draws and accessors:
 double[] z = rng.nextComplexDouble();          // {re, im}, two double draws
 float[] ex = new float[1 << 20];
 rng.fillExponential(ex);                       // the values of repeated nextExponentialFloat()
+ChoiceTable t = new ChoiceTable(new double[] {1, 2, 3, 4});
+int[] picks = new int[1000];
+rng.fillChoice(picks, t);                      // index i with probability w[i] / sum(w)
 int[] key = rng.key();
 long position = rng.position();
 int k = rng.chunkLength();

@@ -1303,6 +1303,40 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
 
     private static final int EXPONENTIAL_BLOCK = 1024;
 
+    /**
+     * Draws an index in {@code [0, table.size())} with probability proportional to its weight,
+     * Appendix C of the specification. It consumes one {@link #nextLong()} draw, with no retry,
+     * and equals element 0 of {@link #fillChoice}.
+     */
+    public int nextChoice(ChoiceTable table) {
+        return table.index(nextLong());
+    }
+
+    /**
+     * Fills with indices drawn from {@code table}: element {@code i} maps draw {@code i} of
+     * {@link #fill(long[])}, so a fill equals the sequence of {@link #nextChoice} and a fill cut
+     * anywhere equals the whole fill. An empty fill aligns the position to 64 bits.
+     */
+    public void fillChoice(int[] a, ChoiceTable table) {
+        fillChoice(a, 0, a.length, table);
+    }
+
+    /** As {@link #fillChoice(int[], ChoiceTable)} on {@code a[off, off + len)}. */
+    public void fillChoice(int[] a, int off, int len, ChoiceTable table) {
+        Objects.checkFromIndexSize(off, len, a.length);
+        Objects.requireNonNull(table);
+        long[] r = new long[Math.min(len, CHOICE_BLOCK)];
+        // One pass even for len = 0, whose empty fill aligns the position.
+        int i = off, end = off + len;
+        do {
+            int m = Math.min(end - i, CHOICE_BLOCK);
+            fill(r, 0, m);
+            for (int k = 0; k < m; k++) a[i++] = table.index(r[k]);
+        } while (i < end);
+    }
+
+    private static final int CHOICE_BLOCK = 1024;
+
     // ---- Random access ----------------------------------------------------------------------
 
     /** Returns bit {@code i} of the fill that would start here, without moving the position. */

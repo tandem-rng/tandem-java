@@ -56,5 +56,7 @@ class NativeFillsTest {
         check("normal float", float[]::new, Tandem::fillGaussian);
         check("exponential double", double[]::new, Tandem::fillExponential);
         check("exponential float", float[]::new, Tandem::fillExponential);
+        ChoiceTable t = new ChoiceTable(new double[] {1, 2, 3, 4});
+        check("choice", int[]::new, (g, a, off, len) -> g.fillChoice(a, off, len, t));
     }
 }
