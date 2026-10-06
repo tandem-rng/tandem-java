@@ -5,31 +5,31 @@ and `pixi run bench` in `cuda/` gives the GPU figures.
 
 ## CPU
 
-One thread, Apple M4 Pro, JDK 25.0.2 (Azul Zulu). Minimum of seven runs after three warm-up
-runs, in GiB/s of output: 2^25 scalar draws at 4 bytes for `nextInt` and 8 for the others, and
-arrays of 2^24 elements. Every row is the median of three such runs on 2026-10-05, in one
-session.
+One thread, Apple M4 Pro, JDK 25.0.2 (Azul Zulu), `pixi run bench-native`. Minimum of seven runs
+after three warm-up runs, in GiB/s of output: 2^25 scalar draws at 4 bytes for `nextInt` and 8
+for the others, and arrays of 2^24 elements. Both tables are the median of three such runs in
+one session on 2026-10-06, baselines included.
 
 | generator | nextInt GiB/s | nextLong GiB/s | nextDouble GiB/s | nextGaussian GiB/s | nextExponential GiB/s | int[] loop GiB/s | double[] loop GiB/s |
 |---|---|---|---|---|---|---|---|
-| Tandem | 3.30 | 4.93 | 4.50 | 3.03 | 2.78 | 3.26 | 4.41 |
-| L64X128MixRandom | 3.25 | 6.71 | 6.61 | 2.19 | 2.11 | 3.28 | 6.54 |
-| SplittableRandom | 8.59 | 15.29 | 12.16 | 3.31 | 3.21 | 9.23 | 15.17 |
-| Random | 0.93 | 0.92 | 0.93 | 0.54 | 0.81 | 0.09 | 0.15 |
+| Tandem | 3.33 | 4.94 | 4.51 | 3.04 | 2.81 | 3.27 | 4.44 |
+| L64X128MixRandom | 3.26 | 6.73 | 6.61 | 2.19 | 2.12 | 3.29 | 6.55 |
+| SplittableRandom | 8.62 | 15.35 | 12.20 | 3.33 | 3.25 | 9.27 | 15.28 |
+| Random | 0.98 | 0.98 | 0.98 | 0.54 | 0.81 | 0.07 | 0.13 |
 
 Scalar draws always run in Java. Array fills, in GiB/s, in Java and through `libtandem` (tandem-c
-d9e1e54, built by `pixi run native`), both columns from one earlier session the same day:
+d9e1e54, built by `pixi run native`):
 
 | fill | Java | libtandem |
 |---|---|---|
-| `fill(int[])` | 9.37 | 18.64 |
-| `fill(long[])` | 8.49 | 18.80 |
-| `fill(float[])` | 5.44 | 16.05 |
-| `fill(double[])` | 8.58 | 16.33 |
-| `fillGaussian(double[])` | 3.97 | 7.58 |
-| `fillGaussian(float[])` | 1.85 | 5.46 |
-| `fillExponential(double[])` | 3.31 | 6.03 |
-| `fillExponential(float[])` | 2.17 | 6.60 |
+| `fill(int[])` | 9.34 | 18.41 |
+| `fill(long[])` | 8.50 | 18.70 |
+| `fill(float[])` | 5.47 | 16.21 |
+| `fill(double[])` | 8.55 | 16.40 |
+| `fillGaussian(double[])` | 3.98 | 7.60 |
+| `fillGaussian(float[])` | 1.84 | 5.47 |
+| `fillExponential(double[])` | 3.32 | 6.05 |
+| `fillExponential(float[])` | 2.16 | 6.55 |
 
 The libtandem column matches tandem-c's own figures. A fill of 512 elements or more takes the
 library, which is faster than Java from that length on. Each call writes straight into the
