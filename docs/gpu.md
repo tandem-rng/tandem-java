@@ -40,7 +40,7 @@ Run the JVM with `--enable-native-access=ALL-UNNAMED`, or with the name of your 
 flag, JDK 25 prints a warning at the first driver call.
 
 The kernels are `cuda/kernels/tandem_fills.cu`, entry points over `tandem.cuh` and `core.hpp` of
-[tandem-cuda](https://github.com/tandem-rng/tandem-cuda) at commit `bab9870`. They mirror its fill
+[tandem-cuda](https://github.com/tandem-rng/tandem-cuda) at commit `10c3bd2`. They mirror its fill
 kernels: the tile kernel for `K >= 8` with 16-byte stores, the direct kernel for smaller `K`, and
 the float normal kernels with the fast `__sincosf` path. The double normals launch the kernels of
 `tandem.cuh` itself, by their mangled names, as its `fill_normal_f64_impl` plans them: the fused

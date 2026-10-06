@@ -3,7 +3,7 @@
 # Needs nvcc 12.8 and clang 19: `pixi run -e nvcc ptx` in cuda/. TANDEM_CUDA and TANDEM_C may
 # name local checkouts that contain the commits, else the script clones them into target/.
 set -eu
-TANDEM_CUDA_COMMIT=bab987067206ccdd68a55b25408c878998d56822
+TANDEM_CUDA_COMMIT=10c3bd2711f03f4b87988417737c2d904e402ab2
 # The normal and exponential fixtures of the reference, tandem-c.
 TANDEM_C_COMMIT=121db5902d6136c7e5258970c0160121af3ab1d0
 
