@@ -910,9 +910,13 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
      * {@code sub(0x424c573332).split(g)} of a generator with this key and chunk length, from
      * position 0. Here g is the aligned start position divided by 32, plus i, so a fill cut into
      * chunks equals the whole fill. Without rejections this equals repeated {@link #belowU32}, but after a
-     * rejection the sequential scalar loop and the fill differ.
+     * rejection the sequential scalar loop and the fill differ. An empty fill leaves the position
+     * unchanged.
      */
     public void fillBelowU32(int[] a, int off, int len, int range) {
+        // Appendix A: an empty bounded fill leaves the position unchanged.
+        Objects.checkFromIndexSize(off, len, a.length);
+        if (len == 0) return;
         long first = align(pos, 32) >>> 5;
         fill(a, off, len);
         if (range == 0) {
@@ -936,6 +940,9 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
 
     /** As {@link #fillBelowU32}, on 64-bit draws and {@code sub(0x424c573634)}. */
     public void fillBelowU64(long[] a, int off, int len, long range) {
+        // Appendix A: an empty bounded fill leaves the position unchanged.
+        Objects.checkFromIndexSize(off, len, a.length);
+        if (len == 0) return;
         long first = align(pos, 64) >>> 6;
         fill(a, off, len);
         if (range == 0) {

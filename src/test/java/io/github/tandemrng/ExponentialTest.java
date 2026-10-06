@@ -5,14 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Arrays;
-import java.util.random.RandomGenerator;
 import org.junit.jupiter.api.Test;
 
-/** Exponentials {@code -ln(1 - u)} are bit identical to tandem-c and tandem-cuda. */
+/**
+ * Exponentials {@code -ln(1 - u)}: long fills against scalar draws and the law of Exp(1).
+ * {@link ConformanceTest} checks the values of tandem-c.
+ */
 class ExponentialTest {
-    private static final long EXPECTED_HASH = 0x47f8f98297d94ee2L;
-    private static final int N = 64;
-
     private static long[] bits(double[] a) {
         return Arrays.stream(a).mapToLong(Double::doubleToRawLongBits).toArray();
     }
@@ -21,60 +20,6 @@ class ExponentialTest {
         int[] b = new int[a.length];
         for (int i = 0; i < a.length; i++) b[i] = Float.floatToRawIntBits(a[i]);
         return b;
-    }
-
-    private static Tandem at(long start) {
-        Tandem g = Tandem.seed(42);
-        g.setPosition(start);
-        return g;
-    }
-
-    @Test
-    void fixtureFromTandemCIsExact() {
-        for (int c = 0; c < Derived.EXP_START.length; c++) {
-            long start = Derived.EXP_START[c];
-            double[] fill = new double[N], scalar = new double[N];
-            Tandem a = at(start);
-            a.fillExponential(fill);
-            RandomGenerator b = at(start);
-            for (int i = 0; i < N; i++) scalar[i] = b.nextExponential();
-            assertArrayEquals(bits(Derived.EXP[c]), bits(fill), "fill " + c);
-            assertArrayEquals(bits(Derived.EXP[c]), bits(scalar), "scalar " + c);
-            assertEquals(Derived.EXP_END[c], a.position());
-            assertEquals(Derived.EXP_END[c], ((Tandem) b).position());
-
-            float[] fillF = new float[N], scalarF = new float[N];
-            Tandem d = at(start), e = at(start);
-            d.fillExponential(fillF);
-            for (int i = 0; i < N; i++) scalarF[i] = e.nextExponentialFloat();
-            assertArrayEquals(bits(Derived.EXPF[c]), bits(fillF), "float fill " + c);
-            assertArrayEquals(bits(Derived.EXPF[c]), bits(scalarF), "float scalar " + c);
-            assertEquals(Derived.EXPF_END[c], d.position());
-            assertEquals(Derived.EXPF_END[c], e.position());
-        }
-    }
-
-    private static long fnv(long h, long bits, int bytes) {
-        for (int i = 0; i < bytes; i++) h = (h ^ ((bits >>> (8 * i)) & 0xff)) * 0x100000001b3L;
-        return h;
-    }
-
-    /** The bytes are those of tandem-c's tools/dump_exponentials.c, SHA-256 5c035a4e... . */
-    @Test
-    void fillsMatchTheCReferenceHash() {
-        int n = 1_000_000;
-        double[] d = new double[n];
-        float[] f = new float[n];
-        long h = 0xcbf29ce484222325L;
-        for (long start : new long[] {0, 1, 77, 12345, 1L << 30}) {
-            Tandem g = Tandem.seed(2026, 7);
-            g.setPosition(start);
-            g.fillExponential(d);
-            for (double x : d) h = fnv(h, Double.doubleToRawLongBits(x), 8);
-            g.fillExponential(f);
-            for (float x : f) h = fnv(h, Float.floatToRawIntBits(x) & 0xffffffffL, 4);
-        }
-        assertEquals(EXPECTED_HASH, h);
     }
 
     @Test

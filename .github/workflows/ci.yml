@@ -37,20 +37,16 @@ jobs:
           python3 tools/gen_vectors.py ../tandem-spec/vectors.json > src/test/java/io/github/tandemrng/Vectors.java
           python3 tools/gen_zig_tables.py ../tandem-spec/tables/normal_f64_zig1024.json > src/main/java/io/github/tandemrng/ZigTables.java
           git diff --exit-code src/test/java/io/github/tandemrng/Vectors.java src/main/java/io/github/tandemrng/ZigTables.java
-  # Against the tandem-cuda commit pinned in cuda/tools/build_ptx.sh, so new upstream commits do
-  # not turn CI red.
-  derived:
-    name: derived data matches the pinned tandem-cuda
+  # Against a pinned spec commit, so new upstream commits do not turn CI red.
+  conformance:
+    name: conformance files equal tandem-spec f420545
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: |
-          pin=$(sed -n 's/^TANDEM_CUDA_COMMIT=//p' cuda/tools/build_ptx.sh)
-          git clone -q https://github.com/tandem-rng/tandem-cuda ../tandem-cuda
-          git -C ../tandem-cuda checkout -q "$pin"
-          c++ -std=c++17 -I ../tandem-cuda/include tools/gen_derived.cpp -o gen_derived
-          ./gen_derived > src/test/java/io/github/tandemrng/Derived.java
-          git diff --exit-code src/test/java/io/github/tandemrng/Derived.java
+          git clone -q https://github.com/tandem-rng/spec ../tandem-spec
+          git -C ../tandem-spec checkout -q f4205457e1e2ed19e655e36820015d7bdcf037dd
+          diff -r --exclude='*.md' ../tandem-spec/conformance src/test/resources/conformance
   # GitHub runners have no GPU: this compiles the cuda module and runs its tests outside the
   # gpu tag, which check the error without a driver. GPU hosts run `pixi run gpu-test` in cuda/.
   cuda:

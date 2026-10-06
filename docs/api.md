@@ -83,7 +83,7 @@ double y = rng.atDouble(1000);                 // element 1000 of the fill from 
   `sub(0x424c573332 or 0x424c573634).split(g)` of the fill's key, from position 0, where g is
   the aligned start position over the width in bits plus i, so chunked fills equal whole fills.
   Scalar `nextInt(bound)` stays the sequential rejection loop, so after a rejection the two
-  differ.
+  differ. An empty bounded fill leaves the position unchanged.
 - Weighted choice follows Appendix C of the specification. `ChoiceTable` builds Walker's alias
   table from `m >= 1` double weights in exact integers and consumes no draws. It throws
   `IllegalArgumentException` for a negative, infinite or NaN weight, or when no weight is
