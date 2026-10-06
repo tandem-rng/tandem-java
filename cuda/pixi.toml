@@ -10,6 +10,11 @@ platforms = ["osx-arm64", "linux-64"]
 openjdk = "25.*"
 maven = "*"
 
+# cuRAND for the bench's comparison rows on GPU hosts.
+[target.linux-64.dependencies]
+cuda-version = "12.8.*"
+libcurand = "*"
+
 [feature.nvcc]
 platforms = ["linux-64"]
 

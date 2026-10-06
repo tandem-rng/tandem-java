@@ -79,31 +79,37 @@ limit, after which the vectors are boxed. The scalar fill is as fast and needs n
 ## GPU
 
 GPU: NVIDIA A100 40 GB (PCIe), driver 570.124, JDK 25, `pixi run bench` in `cuda/`. GiB/s written
-by each device fill. Minimum of 21 samples of ten launches. The last column is the
-[`tandem-cuda`](https://github.com/tandem-rng/tandem-cuda/blob/main/docs/speed.md) figure for
-the same kernel when this table was measured.
+by each device fill. Each sample is ten launches and one synchronize, and the figure is the
+minimum of 21 samples after a half-second warm-up. The GPU had no other process, and a second run
+agreed within 3 %. The tandem-cuda column is the figure of its
+[speed page](https://github.com/tandem-rng/tandem-cuda/blob/main/docs/speed.md) for the same
+kernel at 2^28 elements. The cuRAND columns are Philox4x32-10 of cuRAND 10.3.9 in the same run, by
+the same method, through its host API in the context the fills use. cuRAND has no 64-bit integer
+output for Philox, no bounded integers and no exponentials, so those rows give the nearest call,
+marked "nearest": `curandGenerate` into the same bytes, or the uniform the exponential reads.
 
-| fill | 2^26 GiB/s | 2^28 GiB/s | tandem-cuda 2^28 GiB/s |
-|---|---|---|---|
-| `fillInts` | 1333 | 1385 | 1383 |
-| `fillLongs` | 1367 | 1390 | 1395 |
-| `fillFloats` | 1328 | 1381 | 1383 |
-| `fillDoubles` | 1365 | 1392 | 1394 |
-| `fillBelowU32`, range 1000 | 1288 | 1340 | 1336 |
-| `fillBelowU64`, range 1000 | 1326 | 1356 | 1348 |
-| `fillGaussianFloats` | 1140 | 1200 | 1290 |
-| `fillGaussianDoubles` | 865 | 1016 | 1065 |
+| fill | 2^26 GiB/s | 2^28 GiB/s | tandem-cuda 2^28 GiB/s | cuRAND 2^26 GiB/s | cuRAND 2^28 GiB/s | cuRAND call |
+|---|---|---|---|---|---|---|
+| `fillInts` | 1337 | 1383 | 1377 | 1282 | 1300 | `curandGenerate` |
+| `fillLongs` | 1368 | 1392 | 1388 | 1289 | 1309 | `curandGenerate`, nearest |
+| `fillFloats` | 1330 | 1381 | 1379 | 1249 | 1283 | `curandGenerateUniform` |
+| `fillDoubles` | 1363 | 1392 | 1388 | 791 | 798 | `curandGenerateUniformDouble` |
+| `fillBelowU32`, range 1000 | 1292 | 1347 | 1334 | 1269 | 1304 | `curandGenerate`, nearest |
+| `fillBelowU64`, range 1000 | 1328 | 1357 | 1354 | 1286 | 1311 | `curandGenerate`, nearest |
+| `fillGaussianFloats` | 1153 | 1185 | 1172 | 871 | 885 | `curandGenerateNormal` |
+| `fillGaussianDoubles` | 867 | 1018 | 1056 | 577 | 575 | `curandGenerateNormalDouble` |
+| `fillExponentialFloats` | 1076 | 1092 | 1150 | 1249 | 1277 | `curandGenerateUniform`, nearest |
+| `fillExponentialDoubles` | 895 | 913 | 931 | 791 | 791 | `curandGenerateUniformDouble`, nearest |
 
-Array fills copy over PCIe: `fill(double[])` of 2^26 elements runs at 9.3 GiB/s. Keep data on the
+Array fills copy over PCIe: `fill(double[])` of 2^26 elements runs at 9.4 GiB/s. Keep data on the
 device when a GPU consumes it.
 
-GPU figures: each sample is ten launches and one synchronize, and the figure is the minimum of 21
-samples after a half-second warm-up, GPU idle. The last column of the table above is the
-`tandem-cuda` figure for the same kernel at 2^28 elements.
-
 The uniform and bounded fills run at the card's memory bandwidth, as in `tandem-cuda`. The
-`fillGaussianDoubles` row is the ziggurat, the kernels of `tandem.cuh` itself, measured on
-2026-10-05 with the same method. The normal rows vary by about 6% from run to run. In one process, our float normal kernel and `tandem-cuda`'s
-measured 1211 to 1281 GiB/s alike. The device fills of the API also allocate their memory on each
-call. The array fills add the copy over PCIe into the Java heap: `fill(double[])` of 2^26 elements
-runs at 9.3 GiB/s end to end, about 150 times slower than the device fill.
+`fillGaussianDoubles` row is the ziggurat, the kernels of `tandem.cuh` itself. The normal and
+exponential fills run below the uniforms because the card holds 250 W: their arithmetic lowers its
+clock until it bounds them, see tandem-cuda's
+[design](https://github.com/tandem-rng/tandem-cuda/blob/main/docs/design.md). The kernels come
+from tandem-cuda 10c3bd2, whose exponentials take the same bits with fewer operations. The device
+fills of the API also allocate their memory on each call. The array fills add the copy over PCIe
+into the Java heap: `fill(double[])` of 2^26 elements runs at 9.4 GiB/s end to end, about 150
+times slower than the device fill.
