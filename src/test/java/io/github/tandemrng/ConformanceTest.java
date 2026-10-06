@@ -24,9 +24,10 @@ import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
 
 /**
- * The spec's conformance cases and every item of its {@code conformance/CHECKLIST.md}, from the
- * copies in {@code src/test/resources/conformance}. Every value compares bit for bit: the Float32
- * normals and exponentials copy the C polynomials, so they need no tolerance.
+ * The spec's conformance cases and every item of its {@code conformance/CHECKLIST.md} at
+ * tandem-spec b31af72, from the copies in {@code src/test/resources/conformance}. Every value
+ * compares bit for bit: the Float32 normals and exponentials copy the C polynomials, so they
+ * need no tolerance.
  */
 class ConformanceTest {
     private static final long MASK32 = 0xffffffffL;
@@ -234,17 +235,18 @@ class ConformanceTest {
 
     /**
      * Pieces filled in order on one generator equal the whole fill. A Float32 normal fill writes
-     * whole pairs, so its pieces cut only at even elements, see the Odd n rule.
+     * whole pairs, so its cuts fall at pair boundaries: 2, 8, 20 and the largest even element
+     * below n.
      */
     @Test
     void fillsCutAtElementBoundariesEqualTheWholeFill() {
         for (String file : FILL_FILES)
             for (Case c : cases(file)) {
                 int n = c.n();
-                boolean pairs = c.kind().equals("fill_normal_f32");
+                int[] cuts = c.kind().equals("fill_normal_f32") ? new int[] {2, 8, 20, (n - 1) & ~1} : new int[] {1, 7, 20, 21, n - 1};
                 Fill fill = draws(c).fill;
-                for (int cut : new int[] {1, 7, 20, 21, n - 1}) {
-                    if (cut <= 0 || cut >= n || (pairs && cut % 2 != 0)) continue;
+                for (int cut : cuts) {
+                    if (cut <= 0 || cut >= n) continue;
                     Tandem g = c.generator();
                     long[] head = fill.apply(g, cut), tail = fill.apply(g, n - cut);
                     long[] got = LongStream.concat(Arrays.stream(head), Arrays.stream(tail)).toArray();
@@ -384,7 +386,11 @@ class ConformanceTest {
         assertEquals(160, h.position());
     }
 
-    /** Positions are unsigned. A start is below 2^63, a draw may then pass it. */
+    /**
+     * Positions are unsigned. A start is below 2^63, a draw may then pass it. The item on a fill
+     * that reaches 2^64 does not apply: starts lie below 2^63 and a fill holds at most 2^31
+     * elements of at most 128 bits, so a fill cannot reach 2^64.
+     */
     @Test
     void startsBelow2To63AndDrawsPastIt() {
         int[] key = {1, 2, 3, 4};
