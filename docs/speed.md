@@ -12,24 +12,26 @@ one session on 2026-10-06, baselines included.
 
 | generator | nextInt GiB/s | nextLong GiB/s | nextDouble GiB/s | nextGaussian GiB/s | nextExponential GiB/s | int[] loop GiB/s | double[] loop GiB/s |
 |---|---|---|---|---|---|---|---|
-| Tandem | 3.33 | 4.94 | 4.51 | 3.04 | 2.81 | 3.27 | 4.44 |
-| L64X128MixRandom | 3.26 | 6.73 | 6.61 | 2.19 | 2.12 | 3.29 | 6.55 |
-| SplittableRandom | 8.62 | 15.35 | 12.20 | 3.33 | 3.25 | 9.27 | 15.28 |
-| Random | 0.98 | 0.98 | 0.98 | 0.54 | 0.81 | 0.07 | 0.13 |
+| Tandem | 3.32 | 5.14 | 4.64 | 3.13 | 2.83 | 3.35 | 4.68 |
+| L64X128MixRandom | 3.26 | 6.70 | 6.59 | 2.18 | 2.08 | 3.28 | 6.56 |
+| SplittableRandom | 8.59 | 15.21 | 12.12 | 3.30 | 3.17 | 9.28 | 14.96 |
+| Random | 0.93 | 0.93 | 0.93 | 0.54 | 0.80 | 0.07 | 0.13 |
 
 Scalar draws always run in Java. Array fills, in GiB/s, in Java and through `libtandem` (tandem-c
-d9e1e54, built by `pixi run native`):
+d9e1e54, built by `pixi run native`). The baseline is a loop of the matching `SplittableRandom`
+draw into the array, `(float)` cast for the float normal and exponential. `SplittableRandom` is
+the fastest JDK generator in every column of the table above.
 
-| fill | Java | libtandem |
-|---|---|---|
-| `fill(int[])` | 9.34 | 18.41 |
-| `fill(long[])` | 8.50 | 18.70 |
-| `fill(float[])` | 5.47 | 16.21 |
-| `fill(double[])` | 8.55 | 16.40 |
-| `fillGaussian(double[])` | 3.98 | 7.60 |
-| `fillGaussian(float[])` | 1.84 | 5.47 |
-| `fillExponential(double[])` | 3.32 | 6.05 |
-| `fillExponential(float[])` | 2.16 | 6.55 |
+| fill | Java | libtandem | `SplittableRandom` loop |
+|---|---|---|---|
+| `fill(int[])` | 10.04 | 18.75 | 9.18 |
+| `fill(long[])` | 9.38 | 18.87 | 16.48 |
+| `fill(float[])` | 8.52 | 16.16 | 8.30 |
+| `fill(double[])` | 8.95 | 16.36 | 15.17 |
+| `fillGaussian(double[])` | 4.48 | 7.63 | 3.20 |
+| `fillGaussian(float[])` | 2.11 | 5.48 | 1.64 |
+| `fillExponential(double[])` | 3.43 | 6.04 | 3.11 |
+| `fillExponential(float[])` | 2.55 | 6.61 | 1.59 |
 
 The libtandem column matches tandem-c's own figures. A fill of 512 elements or more takes the
 library, which is faster than Java from that length on. Each call writes straight into the
@@ -50,12 +52,20 @@ read through fields of the generator, with one unsigned range check per draw and
 line. Each lane of a row is independent, so the cache holds a block of 32 rows. Two lanes step
 through the block together with their state in registers. Four lanes need 32 state words, more
 than C2 keeps in the AArch64 registers, and spilled half the loop to the stack. The seeding
-function runs two lanes at a time in the same way. `int[]`, `long[]` and `double[]` fills generate
-whole blocks directly into the destination. The row loops end on `b != end`, which C2 does not
-count: it unrolls counted loops with many xors twice, and the unrolled `int[]` loop spilled. A
-double takes its high word through the floating-point units, `hi 2^-32 + (lo >>> 11) 2^-53`,
-which is exact and leaves the integer units to the step. The JIT does not vectorise the row step,
-so fills stay near 9 GiB/s on the M4 Pro against about 20 GiB/s in `tandem-c`.
+function runs two lanes at a time in the same way. `int[]`, `long[]`, `float[]` and `double[]`
+fills generate whole blocks directly into the destination. The row loops end on `b != end`, which
+C2 does not count: it unrolls counted loops with many xors twice, and the unrolled loop spilled.
+Each iteration steps two rows instead, which halves the range checks and safepoint polls of the
+uncounted loop. C2 has no 32 x 32 to 64-bit multiply and zero-extends both operands of each
+product, so the two words that feed the next products stay zero-extended in longs. A double takes
+its high word through the floating-point units, `hi 2^-32 + (lo >>> 11) 2^-53`, which is exact and
+leaves the integer units to the step.
+
+The JIT does not vectorise the row step. The loop issues about 35 instructions per 16 bytes, near
+the integer issue rate of the M4 Pro core, so fills stay near 9 to 10 GiB/s against about 19 in
+`tandem-c`. A scalar `nextLong` pays that generation plus about 20 instructions of position
+update, block check and load. `SplittableRandom` spends fewer than that on its whole draw, so the
+pure Java scalar draws cannot reach it.
 
 The JIT does not vectorise the polynomial logarithm either: the loop runs at the same speed with
 `-XX:-UseSuperWord`. So `fillExponential`
