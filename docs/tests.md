@@ -16,7 +16,7 @@ cd cuda && pixi run test && pixi run gpu-test    # gpu-test needs a GPU host
 - `NativeFillsTest` checks that every array fill of 512 elements or more, which runs in libtandem
   when it is loaded, equals the same fill in Java pieces in values and end position.
 
-`ConformanceTest` follows `conformance/CHECKLIST.md` at tandem-spec `b31af72` and reads the
+`ConformanceTest` follows `conformance/CHECKLIST.md` at tandem-spec `2a4bd08` and reads the
 copies in `src/test/resources/conformance`. It checks every case of
 `fill_below.json`, `normal.json`, `exponential.json` and `choice.json` in values and end
 position, bounded fallbacks and normal misses included, and the scalar draws of `below.json` and
@@ -58,12 +58,12 @@ array fills. `NoDriverTest` checks the error without a driver.
 ## Fixtures
 
 `src/test/resources/conformance` holds byte-identical copies of the JSON files in tandem-spec's
-`conformance/` at commit `b31af72`. `Vectors.java` is generated from the spec repository's
+`conformance/` at commit `2a4bd08`. `Vectors.java` is generated from the spec repository's
 `vectors.json` by `tools/gen_vectors.py`. The stream dumps in `src/test/resources/data` are
 byte-identical copies of the dumps in `tandem-c`.
-`cross_fill_below.h` and `cross_fill_normal.h` of `tandem-cuda`, and `cross_normal.h` and
-`cross_exponential.h` of `tandem-c` at commit `121db59`, are copied into the GPU test resources by
-`cuda/tools/build_ptx.sh`. `tools/gen_zig_tables.py` generates `ZigTables.java` from the spec's
+`cross_normal.h`, `cross_exponential.h` and the copies of `tandem-cuda`'s `cross_fill_below.h`
+and `cross_fill_normal.h` in `tandem-c` at commit `1c75956` are copied into the GPU test resources
+by `cuda/tools/build_ptx.sh`. `tools/gen_zig_tables.py` generates `ZigTables.java` from the spec's
 `tables/normal_f64_zig1024.json`.
 
 ## CI
@@ -73,5 +73,5 @@ byte-identical copies of the dumps in `tandem-c`.
   and runs the suite in Java, again with the library named by `tandem.native`, and
   `NativeFillsTest` with it on `java.library.path`.
 - CI fails when `Vectors.java` or `ZigTables.java` differ from the spec's data, when the
-  conformance copies differ from tandem-spec `b31af72`, or when the PTX or its fixtures differ
+  conformance copies differ from tandem-spec `2a4bd08`, or when the PTX or its fixtures differ
   from what the tandem-cuda commit pinned in `cuda/tools/build_ptx.sh` gives.

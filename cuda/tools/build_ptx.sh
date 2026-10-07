@@ -3,9 +3,10 @@
 # Needs nvcc 12.8 and clang 19: `pixi run -e nvcc ptx` in cuda/. TANDEM_CUDA and TANDEM_C may
 # name local checkouts that contain the commits, else the script clones them into target/.
 set -eu
-TANDEM_CUDA_COMMIT=2693c6342bab9cfc055b27bcb0aaa31dd935b299
-# The normal and exponential fixtures of the reference, tandem-c.
-TANDEM_C_COMMIT=121db5902d6136c7e5258970c0160121af3ab1d0
+TANDEM_CUDA_COMMIT=e98daeee1463724e4abfd3495da6b059d7815cc4
+# The fixtures of the reference, tandem-c, with its copies of the tandem-cuda bounded and float
+# normal fixtures, which tandem-cuda itself has replaced with the spec's conformance files.
+TANDEM_C_COMMIT=1c75956c39581836c1f6e190d1072c9a43be6b0d
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 repo=${TANDEM_CUDA:-$here/target/tandem-cuda}
@@ -14,12 +15,15 @@ git -C "$repo" cat-file -e "$TANDEM_CUDA_COMMIT^{commit}" 2>/dev/null || git -C 
 src=$here/target/tandem-cuda-$TANDEM_CUDA_COMMIT
 rm -rf "$src"
 mkdir -p "$src"
-git -C "$repo" archive "$TANDEM_CUDA_COMMIT" tandem.cuh include tests/cross_fill_below.h tests/cross_fill_normal.h |
+git -C "$repo" archive "$TANDEM_CUDA_COMMIT" tandem.cuh include |
     tar -x -C "$src"
 c=${TANDEM_C:-$here/target/tandem-c}
 [ -d "$c/.git" ] || git clone -q https://github.com/tandem-rng/tandem-c "$c"
 git -C "$c" cat-file -e "$TANDEM_C_COMMIT^{commit}" 2>/dev/null || git -C "$c" fetch -q origin
-git -C "$c" archive "$TANDEM_C_COMMIT" tests/cross_normal.h tests/cross_exponential.h | tar -x -C "$src"
+git -C "$c" archive "$TANDEM_C_COMMIT" tests/cross_normal.h tests/cross_exponential.h tests/cuda_fill_below.h \
+    tests/cuda_fill_normal.h | tar -x -C "$src"
+mv "$src/tests/cuda_fill_below.h" "$src/tests/cross_fill_below.h"
+mv "$src/tests/cuda_fill_normal.h" "$src/tests/cross_fill_normal.h"
 
 # conda activation prepends its own -ccbin, which nvcc would warn about.
 export NVCC_PREPEND_FLAGS=

@@ -4,7 +4,7 @@
 # from instead of a clone; it must hold the pinned commit.
 set -euo pipefail
 
-TANDEM_C_COMMIT=d9e1e54a95392ad6d3352603ee9ca210de9e9fb8
+TANDEM_C_COMMIT=1c75956c39581836c1f6e190d1072c9a43be6b0d
 
 cd "$(dirname "$0")/.."
 out=target/native
