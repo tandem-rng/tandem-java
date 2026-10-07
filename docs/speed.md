@@ -100,16 +100,16 @@ marked "nearest": `curandGenerate` into the same bytes, or the uniform the expon
 
 | fill | 2^26 GiB/s | 2^28 GiB/s | tandem-cuda 2^28 GiB/s | cuRAND 2^26 GiB/s | cuRAND 2^28 GiB/s | cuRAND call |
 |---|---|---|---|---|---|---|
-| `fillInts` | 1338 | 1380 | 1377 | 1273 | 1300 | `curandGenerate` |
-| `fillLongs` | 1368 | 1393 | 1388 | 1285 | 1314 | `curandGenerate`, nearest |
-| `fillFloats` | 1331 | 1381 | 1377 | 1262 | 1284 | `curandGenerateUniform` |
-| `fillDoubles` | 1364 | 1392 | 1389 | 793 | 799 | `curandGenerateUniformDouble` |
-| `fillBelowU32`, range 1000 | 1293 | 1347 | 1334 | 1269 | 1301 | `curandGenerate`, nearest |
-| `fillBelowU64`, range 1000 | 1329 | 1358 | 1354 | 1285 | 1312 | `curandGenerate`, nearest |
-| `fillGaussianFloats` | 1188 | 1235 | 1204 | 882 | 885 | `curandGenerateNormal` |
-| `fillGaussianDoubles` | 867 | 1018 | 1058 | 573 | 582 | `curandGenerateNormalDouble` |
-| `fillExponentialFloats` | 1063 | 1090 | 1149 | 1244 | 1273 | `curandGenerateUniform`, nearest |
-| `fillExponentialDoubles` | 896 | 913 | 941 | 790 | 791 | `curandGenerateUniformDouble`, nearest |
+| `fillInts` | 1337 | 1383 | 1377 | 1275 | 1299 | `curandGenerate` |
+| `fillLongs` | 1367 | 1390 | 1389 | 1294 | 1307 | `curandGenerate`, nearest |
+| `fillFloats` | 1330 | 1382 | 1379 | 1254 | 1279 | `curandGenerateUniform` |
+| `fillDoubles` | 1362 | 1392 | 1388 | 781 | 790 | `curandGenerateUniformDouble` |
+| `fillBelowU32`, range 1000 | 1292 | 1347 | 1332 | 1270 | 1295 | `curandGenerate`, nearest |
+| `fillBelowU64`, range 1000 | 1328 | 1357 | 1354 | 1282 | 1313 | `curandGenerate`, nearest |
+| `fillGaussianFloats` | 1198 | 1201 | 1219 | 865 | 874 | `curandGenerateNormal` |
+| `fillGaussianDoubles` | 864 | 1015 | 1064 | 575 | 570 | `curandGenerateNormalDouble` |
+| `fillExponentialFloats` | 856 | 873 | 926 | 1237 | 1274 | `curandGenerateUniform`, nearest |
+| `fillExponentialDoubles` | 896 | 907 | 955 | 783 | 790 | `curandGenerateUniformDouble`, nearest |
 
 Array fills copy over PCIe: `fill(double[])` of 2^26 elements runs at 8.8 GiB/s. Keep data on the
 device when a GPU consumes it.
@@ -119,9 +119,10 @@ The uniform and bounded fills run at the card's memory bandwidth, as in `tandem-
 exponential fills run below the uniforms because the card holds 250 W: their arithmetic lowers its
 clock until it bounds them, see tandem-cuda's
 [design](https://github.com/tandem-rng/tandem-cuda/blob/main/docs/design.md). The kernels come
-from tandem-cuda 2693c63, whose exponentials take the same bits with fewer operations and whose
-f32 normal takes its square root without the range check: 1185 to 1235 GiB/s. cuRAND leads the
-f32 exponential row, where its nearest call is a uniform without the logarithm. The device fills
+from tandem-cuda e98daee, whose f32 exponential is within 0.571 ulp for every draw, so that
+`1 - exp(-x)` maps back to the draw's own 2^-24 grid point. Its two-float logarithm takes 10 more
+f32 operations per draw than the single-float one before it. cuRAND leads the f32 exponential
+row, where its nearest call is a uniform without the logarithm. The device fills
 of the API also allocate their memory on each call. The array fills add the copy over PCIe into
 the Java heap: `fill(double[])` of 2^26 elements runs at 8.8 GiB/s end to end, about 150 times
 slower than the device fill.
