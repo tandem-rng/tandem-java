@@ -14,7 +14,7 @@ final class Normals {
 
     private static final int SIGN32 = 0x80000000;
 
-    /** -2 ln x for x in (0, 1], the logarithm of the normals and the exponentials. */
+    /** -2 ln x for x in (0, 1], the logarithm of the normals and the double exponentials. */
     private static double neg2Log(double x) {
         // x = mant 2^k with mant in [sqrt(1/2), sqrt 2), from the bits: adding the bits of
         // sqrt(1/2) to the exponent field makes the mantissa rollover pick k.
@@ -45,8 +45,25 @@ final class Normals {
         return 0.5 * neg2Log(1.0 - u);
     }
 
+    /**
+     * {@code -ln(1 - u)} in float, tandem-c's {@code neg_log_f32}: within 0.571 ulp for every
+     * {@code u} on the 2^-24 grid, so that {@code 1 - exp(-x)} maps each draw back to its own
+     * grid point. {@code u = (2 - 2m) / (m + 1)} is carried as {@code uh + r / d} with
+     * {@code m + 1 = d + dl} exactly, and {@code nk ln2_hi + uh} is split by fast two-sum, exact
+     * because {@code nk ln2_hi} is either 0 or larger than {@code |uh|}. {@code uh} rounds in an
+     * fma as in tandem-c, where that stops a contracting compiler from fusing {@code num * rcp}
+     * into the two-sum.
+     */
     static float exponentialF(float u) {
-        return 0.5f * neg2LogF(1.0f - u);
+        int ix = Float.floatToRawIntBits(1.0f - u) + 0x004afb0d;
+        float nk = (float) (127 - (ix >>> 23));
+        float mant = Float.intBitsToFloat((ix & 0x007fffff) + 0x3f3504f3);
+        float num = Math.fma(mant, -2.0f, 2.0f), d = mant + 1.0f, dl = mant - (d - 1.0f);
+        float rcp = 1.0f / d, uh = Math.fma(num, rcp, 0.0f);
+        float r = Math.fma(-uh, dl, Math.fma(-uh, d, num)), v = uh * uh;
+        float q = Math.fma(v, Math.fma(v, 0.0023109776f, 0.012496489f), 0.08333336f);
+        float kHi = nk * 0.693145751953125f, hi = kHi + uh, e = uh - (hi - kHi);
+        return hi + Math.fma(uh * v, q, Math.fma(r, rcp, Math.fma(nk, 1.428606765330187e-06f, e)));
     }
 
     /**

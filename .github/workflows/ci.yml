@@ -39,13 +39,13 @@ jobs:
           git diff --exit-code src/test/java/io/github/tandemrng/Vectors.java src/main/java/io/github/tandemrng/ZigTables.java
   # Against a pinned spec commit, so new upstream commits do not turn CI red.
   conformance:
-    name: conformance files equal tandem-spec b31af72
+    name: conformance files equal tandem-spec 2a4bd08
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - run: |
           git clone -q https://github.com/tandem-rng/spec ../tandem-spec
-          git -C ../tandem-spec checkout -q b31af7238076b414a3eb2a128bfd010cce136287
+          git -C ../tandem-spec checkout -q 2a4bd08205596bc12bb7ae102862c97a0477dc2e
           diff -r --exclude='*.md' ../tandem-spec/conformance src/test/resources/conformance
   # GitHub runners have no GPU: this compiles the cuda module and runs its tests outside the
   # gpu tag, which check the error without a driver. GPU hosts run `pixi run gpu-test` in cuda/.

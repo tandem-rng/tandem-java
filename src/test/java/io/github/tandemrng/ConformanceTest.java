@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The spec's conformance cases and every item of its {@code conformance/CHECKLIST.md} at
- * tandem-spec b31af72, from the copies in {@code src/test/resources/conformance}. Every value
+ * tandem-spec 2a4bd08, from the copies in {@code src/test/resources/conformance}. Every value
  * compares bit for bit: the Float32 normals and exponentials copy the C polynomials, so they
  * need no tolerance.
  */

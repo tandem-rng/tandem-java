@@ -36,7 +36,7 @@ final class NativeFills {
     private static final int STEP = 1 << 16;
 
     // tandem_rng is returned by value. Any struct over 16 bytes comes back through memory the
-    // caller provides, so a larger layout than tandem.h's 296 bytes is ABI compatible and leaves
+    // caller provides, so a larger layout than tandem.h's 432 bytes is ABI compatible and leaves
     // room should the struct grow.
     private static final MemoryLayout RNG = MemoryLayout.structLayout(MemoryLayout.sequenceLayout(128, JAVA_LONG));
 

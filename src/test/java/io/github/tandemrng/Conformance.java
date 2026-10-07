@@ -11,7 +11,7 @@ import java.util.Map;
 
 /**
  * The spec's conformance files in {@code src/test/resources/conformance}, byte-identical copies
- * of tandem-spec's {@code conformance/*.json} at b31af72, and readers for their fields. The JSON reader
+ * of tandem-spec's {@code conformance/*.json} at 2a4bd08, and readers for their fields. The JSON reader
  * takes what those files hold: objects, arrays, strings without escapes, numbers.
  */
 final class Conformance {
