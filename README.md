@@ -10,15 +10,15 @@ Pure Java implementation of [Tandem8x32](https://github.com/tandem-rng/spec), a 
 pseudorandom number generator. It produces the specified stream bit for bit, as a JDK
 `RandomGenerator`, and the optional `tandem-rng-cuda` module fills on NVIDIA GPUs.
 
-The artifact is `tandem-rng`. It needs Java 25 or later and no runtime dependencies.
-`pixi run native` builds tandem-c's `libtandem` at a pinned commit, and with its path in
-`-Dtandem.native` (plus `--enable-native-access=ALL-UNNAMED`) or the library on
-`java.library.path`, array fills of 512 elements or more run in it. Without it they run in
-Java and give the same bits.
+## Install
+
+Build and install the `tandem-rng` artifact with Maven:
 
 ```sh
-pixi run test        # mvn -B verify
+mvn install
 ```
+
+## Quick start
 
 ```java
 import io.github.tandemrng.Tandem;
@@ -30,9 +30,25 @@ Tandem worker = rng.split(7);                  // by index, from the key alone
 double g = worker.nextGaussian();              // ziggurat, bit identical to tandem-c
 ```
 
+## Requirements
+
+It needs Java 25 or later and no runtime dependencies.
+`pixi run native` builds tandem-c's `libtandem` at a pinned commit, and with its path in
+`-Dtandem.native` (plus `--enable-native-access=ALL-UNNAMED`) or the library on
+`java.library.path`, array fills of 512 elements or more run in it. Without it they run in
+Java and give the same bits.
+
+## Documentation
+
 See [API](docs/api.md) for every draw, [GPU module](docs/gpu.md) for the CUDA fills, and
 [tests](docs/tests.md) and [speed](docs/speed.md) for the rest.
 
+Run the tests:
+
+```sh
+pixi run test        # mvn -B verify
+```
+
 Portions of the code were generated with the assistance of LLMs.
 
-[Documentation](https://tandem-rng.github.io/tandem-java/) · [Apache 2.0 license](LICENSE)
+[Docs](https://tandem-rng.github.io/tandem-java/) · [Specification](https://github.com/tandem-rng/spec/blob/main/SPEC.md) · [Website](https://tandem-rng.github.io/) · [Issues](https://github.com/tandem-rng/tandem-java/issues) · [License](LICENSE)
