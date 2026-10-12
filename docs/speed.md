@@ -1,4 +1,4 @@
-# Speed
+# Performance
 
 `pixi run bench` produces the CPU figures, `pixi run bench-native` adds the row with libtandem,
 and `pixi run bench` in `cuda/` gives the GPU figures.

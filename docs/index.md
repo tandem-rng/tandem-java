@@ -7,7 +7,7 @@ Pure Java implementation of Tandem8x32. It produces the stream of the
 - [API](api.md): the generator, draws, fills, bounded integers, normals, exponentials and the JDK and Commons RNG interfaces.
 - [GPU module](gpu.md): `tandem-rng-cuda` and its kernels.
 - [Tests](tests.md): what the suites check, where the fixtures come from, and what CI runs.
-- [Speed](speed.md): Apple M4 Pro and A100 figures.
+- [Performance](speed.md): Apple M4 Pro and A100 figures.
 
 ## Install
 
