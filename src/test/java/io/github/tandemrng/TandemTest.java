@@ -122,6 +122,18 @@ class TandemTest {
     }
 
     @Test
+    void copyKeepsAnUnsignedSuccessor() {
+        Tandem g = new Tandem(KEY, Long.MAX_VALUE - 63, 8);
+        g.nextLong();
+        assertEquals(Long.MIN_VALUE, g.position());
+        Tandem c = g.copy();
+        assertArrayEquals(g.key(), c.key());
+        assertEquals(g.position(), c.position());
+        assertEquals(g.chunkLength(), c.chunkLength());
+        for (int i = 0; i < 300; i++) assertEquals(g.nextLong(), c.nextLong());
+    }
+
+    @Test
     void serializationKeepsTheStream() throws IOException, ClassNotFoundException {
         Tandem g = Tandem.seed(21, 22, 64);
         for (int i = 0; i < 100; i++) g.nextLong();
