@@ -389,14 +389,26 @@ public final class TandemCuda implements AutoCloseable {
             run(normal64Fused, blocks, 0, k0, k1, k2, k3, k, g0, d0, n, out);
             return;
         }
-        long count = scratch, list = scratch + 16;
-        cu.zeroAsync(count, 2);
-        long off = (out - 8 * d0) & 31;
-        MemorySegment table = (out & 31) == 0 && (off == 8 || off == 16) ? ((d0 & 1) != 0 ? normal64Octets1 : normal64Octets0)
-                : (off & 15) == 0 ? normal64Even : normal64Odd;
-        run(table, blocks, 0, k0, k1, k2, k3, k, g0, d0, n, out, list, count, cap);
-        run(normal64Misses, (n / 200 + THREADS - 1) / THREADS, 0, k0, k1, k2, k3, k, g0, chunks, d0, n, list, count, cap, out);
-        cu.freeAsync(scratch);
+        Throwable failure = null;
+        try {
+            long count = scratch, list = scratch + 16;
+            cu.zeroAsync(count, 2);
+            long off = (out - 8 * d0) & 31;
+            MemorySegment table = (out & 31) == 0 && (off == 8 || off == 16) ? ((d0 & 1) != 0 ? normal64Octets1 : normal64Octets0)
+                    : (off & 15) == 0 ? normal64Even : normal64Odd;
+            run(table, blocks, 0, k0, k1, k2, k3, k, g0, d0, n, out, list, count, cap);
+            run(normal64Misses, (n / 200 + THREADS - 1) / THREADS, 0, k0, k1, k2, k3, k, g0, chunks, d0, n, list, count, cap, out);
+        } catch (RuntimeException | Error e) {
+            failure = e;
+            throw e;
+        } finally {
+            try {
+                cu.freeAsync(scratch);
+            } catch (RuntimeException | Error e) {
+                if (failure == null) throw e;
+                failure.addSuppressed(e);
+            }
+        }
     }
 
     private static final long MASK32 = 0xffffffffL;
