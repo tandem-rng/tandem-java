@@ -186,7 +186,10 @@ public final class Tandem implements RandomGenerator.SplittableGenerator, Serial
 
     /** Returns an independent generator with the same key, position and chunk length. */
     public Tandem copy() {
-        return new Tandem(k0, k1, k2, k3, pos, chunk);
+        Tandem copy = new Tandem(k0, k1, k2, k3, 0L, chunk);
+        // A valid successor can exceed the public constructor's starting-position bound.
+        copy.pos = pos;
+        return copy;
     }
 
     @Override
